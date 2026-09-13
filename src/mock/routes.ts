@@ -1,26 +1,6 @@
 import type { ChainId, RouteStep } from "#/lib/types";
 import { CHAIN_LABEL } from "./assets";
 
-/**
- * The cross-chain path a swap actually takes. There is deliberately no
- * "bridge" step: with Aurora Intents the solver settles the leg, and the
- * absence of a manual bridge is the product's first differentiator — so the
- * route must read as one continuous motion, not a handoff between systems.
- */
-export function swapRouteSteps(source: ChainId): RouteStep[] {
-	return [
-		{
-			id: "intent",
-			label: "Intent sent to Aurora",
-			detail: CHAIN_LABEL[source],
-			state: "pending",
-		},
-		{ id: "solver", label: "Solver filled", state: "pending" },
-		{ id: "gate", label: "Confirmed at Custos gate", state: "pending" },
-		{ id: "kuru", label: "Executed on Kuru CLOB", state: "pending" },
-	];
-}
-
 export function depositRouteSteps(source: ChainId): RouteStep[] {
 	return [
 		{
