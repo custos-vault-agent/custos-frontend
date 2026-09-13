@@ -264,7 +264,7 @@ export function SharePriceSpark({
 
 	return (
 		<svg width={width} height={height} aria-hidden>
-			<title>Share price trend, {rising ? "rising" : "falling"}</title>
+			<title>{`Share price trend, ${rising ? "rising" : "falling"}`}</title>
 			<polyline
 				points={points}
 				fill="none"
