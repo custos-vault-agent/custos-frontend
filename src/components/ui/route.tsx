@@ -16,9 +16,9 @@ const TEXT: Record<RouteStep["state"], string> = {
 };
 
 /**
- * The vertical route. Used in three places — the swap sidecar, the deposit
- * flow and in-flight activity rows — deliberately unchanged in each, so the
- * shape itself comes to mean "a cross-chain leg is resolving".
+ * The vertical route. Used in the subscribe flow and in in-flight activity
+ * rows — deliberately unchanged in each, so the shape itself comes to mean
+ * "a cross-chain leg is resolving".
  */
 export function RouteStepper({
 	steps,
@@ -65,26 +65,5 @@ export function RouteStepper({
 				);
 			})}
 		</ol>
-	);
-}
-
-/**
- * Horizontal variant for the idle quote panel, where the route is context
- * rather than progress and should take one line, not five.
- */
-export function RouteRail({ nodes }: { nodes: string[] }) {
-	return (
-		<div className="flex items-center gap-2 overflow-x-auto">
-			{nodes.map((node, index) => (
-				<div key={node} className="flex shrink-0 items-center gap-2">
-					<span className="border border-edge bg-surface2 px-2 text-[16px] text-dim">
-						{node}
-					</span>
-					{index < nodes.length - 1 ? (
-						<span aria-hidden className="block h-[2px] w-[14px] dash-h" />
-					) : null}
-				</div>
-			))}
-		</div>
 	);
 }
