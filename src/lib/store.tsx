@@ -9,46 +9,38 @@ import {
 	useState,
 } from "react";
 import { SEED_ACTIVITY } from "#/mock/activity";
-import {
-	agentActor,
-	OWNER_ACTOR,
-	OWNER_ADDRESS,
-	SEED_AGENTS,
-} from "#/mock/agents";
-import { SEED_ORDERS } from "#/mock/orders";
+import { agentActor, OWNER_ACTOR, OWNER_ADDRESS, SEED_AGENTS } from "#/mock/agents";
+import { SEED_POSITIONS } from "#/mock/positions";
 import {
 	advanceSteps,
 	depositRouteSteps,
 	STEP_TIMING,
 	startSteps,
-	swapRouteSteps,
 } from "#/mock/routes";
 import type {
 	ActivityEntry,
 	Agent,
 	AssetSymbol,
 	ChainId,
-	LimitOrder,
-	OrderSide,
+	Position,
 	ResetPeriod,
 	RouteStep,
 } from "./types";
 
-const SEED_BALANCE = 12_480;
+type SubscribeCredit = { agentId: string; assets: number };
 
 type InFlight = {
 	entry: ActivityEntry;
 	/** Wall-clock time at which the next step should complete. */
 	nextAt: number;
-	/** Applied to the vault once the route lands. */
-	credit?: number;
+	/** Applied to the vault + position once the route lands. */
+	subscribeCredit?: SubscribeCredit;
 };
 
 type State = {
 	connected: boolean;
-	balance: number;
 	agents: Agent[];
-	orders: LimitOrder[];
+	positions: Position[];
 	history: ActivityEntry[];
 	inFlight: InFlight[];
 };
@@ -57,16 +49,10 @@ type Action =
 	| { type: "connect" }
 	| { type: "disconnect" }
 	| { type: "register"; agent: Agent }
-	| {
-			type: "allowance";
-			id: string;
-			allowance: number;
-			resetPeriod: ResetPeriod;
-	  }
+	| { type: "allowance"; id: string; allowance: number; resetPeriod: ResetPeriod }
 	| { type: "status"; id: string; status: Agent["status"] }
-	| { type: "cancel-order"; id: string }
-	| { type: "place-order"; order: LimitOrder }
-	| { type: "withdraw"; amount: number }
+	| { type: "set-public"; id: string; isPublic: boolean }
+	| { type: "redeem"; agentId: string; shares: number }
 	| { type: "start-flight"; flight: InFlight }
 	| { type: "tick-flight"; now: number }
 	| { type: "record"; entry: ActivityEntry };
@@ -74,12 +60,92 @@ type Action =
 function initialState(): State {
 	return {
 		connected: true,
-		balance: SEED_BALANCE,
 		agents: SEED_AGENTS,
-		orders: SEED_ORDERS,
+		positions: SEED_POSITIONS,
 		history: SEED_ACTIVITY,
 		inFlight: [],
 	};
+}
+
+/** Mints shares at the vault's current price and upserts the subscriber's
+ *  position. Shared by the "subscribe lands" and future direct-credit paths
+ *  so the math lives in exactly one place. */
+function applySubscribe(state: State, agentId: string, assets: number): State {
+	const agent = state.agents.find((a) => a.id === agentId);
+	if (!agent) return state;
+
+	const sharesMinted = assets / agent.vault.sharePrice;
+	const agents = state.agents.map((a) =>
+		a.id === agentId
+			? {
+					...a,
+					vault: {
+						...a.vault,
+						totalAssets: a.vault.totalAssets + assets,
+						totalShares: a.vault.totalShares + sharesMinted,
+					},
+				}
+			: a,
+	);
+
+	const existing = state.positions.find(
+		(p) => p.agentId === agentId && p.subscriberAddress === OWNER_ADDRESS,
+	);
+	const positions = existing
+		? state.positions.map((p) =>
+				p === existing
+					? {
+							...p,
+							shares: p.shares + sharesMinted,
+							depositedAssets: p.depositedAssets + assets,
+						}
+					: p,
+			)
+		: [
+				...state.positions,
+				{
+					agentId,
+					subscriberAddress: OWNER_ADDRESS,
+					shares: sharesMinted,
+					depositedAssets: assets,
+				},
+			];
+
+	return { ...state, agents, positions };
+}
+
+/** Burns shares at the vault's current price. Returns the assets paid out
+ *  so the caller can record an accurate activity entry. */
+function applyRedeem(
+	state: State,
+	agentId: string,
+	shares: number,
+): { state: State; assets: number } {
+	const agent = state.agents.find((a) => a.id === agentId);
+	if (!agent) return { state, assets: 0 };
+
+	const assets = shares * agent.vault.sharePrice;
+	const agents = state.agents.map((a) =>
+		a.id === agentId
+			? {
+					...a,
+					vault: {
+						...a.vault,
+						totalAssets: Math.max(0, a.vault.totalAssets - assets),
+						totalShares: Math.max(0, a.vault.totalShares - shares),
+					},
+				}
+			: a,
+	);
+	const positions = state.positions
+		.map((p) =>
+			p.agentId === agentId && p.subscriberAddress === OWNER_ADDRESS
+				? { ...p, shares: Math.max(0, p.shares - shares) }
+				: p,
+		)
+		.filter((p) => p.shares > 0.0001);
+
+	return { state: { ...state, agents, positions }, assets };
 }
 
 function reducer(state: State, action: Action): State {
@@ -98,11 +164,7 @@ function reducer(state: State, action: Action): State {
 				...state,
 				agents: state.agents.map((a) =>
 					a.id === action.id
-						? {
-								...a,
-								allowance: action.allowance,
-								resetPeriod: action.resetPeriod,
-							}
+						? { ...a, allowance: action.allowance, resetPeriod: action.resetPeriod }
 						: a,
 				),
 			};
@@ -115,17 +177,16 @@ function reducer(state: State, action: Action): State {
 				),
 			};
 
-		case "cancel-order":
+		case "set-public":
 			return {
 				...state,
-				orders: state.orders.filter((o) => o.id !== action.id),
+				agents: state.agents.map((a) =>
+					a.id === action.id ? { ...a, isPublic: action.isPublic } : a,
+				),
 			};
 
-		case "place-order":
-			return { ...state, orders: [action.order, ...state.orders] };
-
-		case "withdraw":
-			return { ...state, balance: Math.max(0, state.balance - action.amount) };
+		case "redeem":
+			return applyRedeem(state, action.agentId, action.shares).state;
 
 		case "start-flight":
 			return { ...state, inFlight: [action.flight, ...state.inFlight] };
@@ -134,7 +195,7 @@ function reducer(state: State, action: Action): State {
 			return { ...state, history: [action.entry, ...state.history] };
 
 		case "tick-flight": {
-			let balance = state.balance;
+			let next = state;
 			const landed: ActivityEntry[] = [];
 			const still: InFlight[] = [];
 
@@ -149,7 +210,13 @@ function reducer(state: State, action: Action): State {
 				const entry: ActivityEntry = { ...flight.entry, steps: result.steps };
 
 				if (result.done) {
-					if (flight.credit) balance += flight.credit;
+					if (flight.subscribeCredit) {
+						next = applySubscribe(
+							next,
+							flight.subscribeCredit.agentId,
+							flight.subscribeCredit.assets,
+						);
+					}
 					landed.push({ ...entry, status: "filled" });
 				} else {
 					const index = result.steps.findIndex((s) => s.state === "active");
@@ -162,17 +229,14 @@ function reducer(state: State, action: Action): State {
 			}
 
 			if (landed.length === 0 && still.length === state.inFlight.length) {
-				// Nothing crossed a boundary; keep the previous object so React
-				// does not re-render every consumer four times a second.
 				const unchanged = still.every((f, i) => f === state.inFlight[i]);
-				if (unchanged) return state;
+				if (unchanged) return next;
 			}
 
 			return {
-				...state,
-				balance,
+				...next,
 				inFlight: still,
-				history: landed.length ? [...landed, ...state.history] : state.history,
+				history: landed.length ? [...landed, ...next.history] : next.history,
 			};
 		}
 	}
@@ -182,56 +246,49 @@ export type RegisterInput = {
 	name: string;
 	description: string;
 	agentAddress: string;
+	seedAmount: number;
 	allowance: number;
 	resetPeriod: ResetPeriod;
+	feeRateBps: number;
+	maxDrawdownBps: number;
+	maxUtilizationBps: number;
+	yieldEnabled: boolean;
+	isPublic: boolean;
 };
 
-export type SwapInput = {
-	fromSymbol: AssetSymbol;
-	toSymbol: AssetSymbol;
-	sourceChain: ChainId;
+export type SubscribeInput = {
+	agentId: string;
+	chain: ChainId;
+	symbol: AssetSymbol;
 	amount: number;
-	receive: number;
+};
+
+export type RedeemInput = {
+	agentId: string;
+	shares: number;
+	chain: ChainId;
 };
 
 type StoreValue = {
 	connected: boolean;
-	balance: number;
-	delegated: number;
-	available: number;
 	agents: Agent[];
 	myAgents: Agent[];
-	orders: LimitOrder[];
-	openOrders: LimitOrder[];
+	positions: Position[];
+	myPositions: Position[];
 	history: ActivityEntry[];
 	inFlight: ActivityEntry[];
-	/** Drives quote jitter, so the rate moves without ever contradicting itself. */
+	/** Drives quote jitter elsewhere and keeps re-renders honest here. */
 	tick: number;
 	connect: () => void;
 	disconnect: () => void;
 	registerAgent: (input: RegisterInput) => void;
-	setAllowance: (
-		id: string,
-		allowance: number,
-		resetPeriod: ResetPeriod,
-	) => void;
+	setAllowance: (id: string, allowance: number, resetPeriod: ResetPeriod) => void;
 	pauseAgent: (id: string) => void;
 	resumeAgent: (id: string) => void;
 	revokeAgent: (id: string) => void;
-	cancelOrder: (id: string) => void;
-	placeLimitOrder: (input: {
-		pair: string;
-		side: OrderSide;
-		price: number;
-		total: number;
-	}) => void;
-	submitSwap: (input: SwapInput) => void;
-	submitDeposit: (input: {
-		chain: ChainId;
-		symbol: AssetSymbol;
-		amount: number;
-	}) => void;
-	submitWithdraw: (input: { chain: ChainId; amount: number }) => void;
+	setPublic: (id: string, isPublic: boolean) => void;
+	subscribe: (input: SubscribeInput) => void;
+	redeem: (input: RedeemInput) => void;
 };
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -240,8 +297,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 	const [state, dispatch] = useReducer(reducer, undefined, initialState);
 	const [tick, setTick] = useState(0);
 
-	// Advances in-flight routes. 250ms is fine-grained enough that a step never
-	// looks like it lands late, and the reducer bails out when nothing changed.
 	useEffect(() => {
 		if (state.inFlight.length === 0) return;
 		const id = window.setInterval(
@@ -251,33 +306,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		return () => window.clearInterval(id);
 	}, [state.inFlight.length]);
 
-	// Quote drift. Slow enough to read, fast enough to feel live.
 	useEffect(() => {
 		const id = window.setInterval(() => setTick((t) => t + 1), 3000);
 		return () => window.clearInterval(id);
 	}, []);
 
-	const delegated = useMemo(
-		() =>
-			state.agents
-				.filter(
-					(a) => a.ownerAddress === OWNER_ADDRESS && a.status === "active",
-				)
-				.reduce((sum, a) => sum + a.allowance, 0),
-		[state.agents],
-	);
-
 	const myAgents = useMemo(
 		() =>
 			state.agents.filter(
-				(a) => a.ownerAddress === OWNER_ADDRESS && a.status !== "revoked",
+				(a) => a.creatorAddress === OWNER_ADDRESS && a.status !== "revoked",
 			),
 		[state.agents],
 	);
 
-	const openOrders = useMemo(
-		() => state.orders.filter((o) => o.status === "open"),
-		[state.orders],
+	const myPositions = useMemo(
+		() => state.positions.filter((p) => p.subscriberAddress === OWNER_ADDRESS),
+		[state.positions],
 	);
 
 	const inFlightEntries = useMemo(
@@ -286,13 +330,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 	);
 
 	const startFlight = useCallback(
-		(entry: ActivityEntry, steps: RouteStep[], credit?: number) => {
+		(entry: ActivityEntry, steps: RouteStep[], subscribeCredit?: SubscribeCredit) => {
 			dispatch({
 				type: "start-flight",
 				flight: {
 					entry: { ...entry, steps: startSteps(steps) },
 					nextAt: Date.now() + STEP_TIMING[0],
-					credit,
+					subscribeCredit,
 				},
 			});
 		},
@@ -300,17 +344,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 	);
 
 	const registerAgent = useCallback((input: RegisterInput) => {
+		const id = `${input.name}-${Date.now().toString(36)}`;
 		const agent: Agent = {
-			id: `${input.name}-${Date.now().toString(36)}`,
+			id,
 			name: input.name,
-			description: input.description,
+			description:
+				input.description.trim() || "No description provided by the creator.",
 			agentAddress: input.agentAddress,
-			ownerAddress: OWNER_ADDRESS,
+			creatorAddress: OWNER_ADDRESS,
+			isPublic: input.isPublic,
 			allowance: input.allowance,
 			used: 0,
 			resetPeriod: input.resetPeriod,
 			status: "active",
 			registeredAt: Date.now(),
+			vault: {
+				address: `0xVAULT${id.slice(0, 10).toUpperCase()}`,
+				asset: "USDC",
+				totalAssets: input.seedAmount,
+				totalShares: input.seedAmount,
+				sharePrice: 1,
+				sharePriceHistory: [{ t: Date.now(), price: 1 }],
+				highWaterMark: 1,
+				feeRateBps: input.feeRateBps,
+				maxDrawdownBps: input.maxDrawdownBps,
+				maxUtilizationBps: input.maxUtilizationBps,
+				yieldEnabled: input.yieldEnabled,
+				yieldApyBps: input.yieldEnabled ? 500 : 0,
+				seedAssets: input.seedAmount,
+				circuitBreakerTripped: false,
+			},
+			nansen: null,
 			// A brand new agent has no track record. Showing zeros is the honest
 			// answer; inventing a history would be the dishonest one.
 			stats: { volume30d: 0, trades30d: 0, pnl30d: 0 },
@@ -319,12 +383,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		dispatch({
 			type: "record",
 			entry: {
-				id: `reg-${agent.id}`,
-				kind: "allowance-change",
+				id: `seed-${id}`,
+				kind: "seed-deposit",
 				actor: OWNER_ACTOR,
+				agentId: id,
 				timestamp: Date.now(),
 				title: `Agent registered · ${agent.name}`,
-				subtitle: `allowance ${agent.allowance.toLocaleString("en-US")} USDC · ${agent.resetPeriod}`,
+				subtitle: `seed ${input.seedAmount.toLocaleString("en-US")} USDC · locked`,
 				amount: "—",
 				status: "recorded",
 			},
@@ -340,8 +405,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 				type: "record",
 				entry: {
 					id: `alw-${id}-${Date.now()}`,
-					kind: "allowance-change",
+					kind: "vault-config",
 					actor: OWNER_ACTOR,
+					agentId: id,
 					timestamp: Date.now(),
 					title: `Allowance changed · ${agent.name}`,
 					subtitle: `${agent.allowance.toLocaleString("en-US")} → ${allowance.toLocaleString("en-US")} USDC`,
@@ -362,8 +428,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 				type: "record",
 				entry: {
 					id: `st-${id}-${Date.now()}`,
-					kind: "allowance-change",
+					kind: "vault-config",
 					actor: OWNER_ACTOR,
+					agentId: id,
 					timestamp: Date.now(),
 					title: `${verb} · ${agent.name}`,
 					amount: "—",
@@ -374,128 +441,81 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		[state.agents],
 	);
 
-	const cancelOrder = useCallback(
-		(id: string) => {
-			const order = state.orders.find((o) => o.id === id);
-			dispatch({ type: "cancel-order", id });
-			if (!order) return;
+	const setPublic = useCallback(
+		(id: string, isPublic: boolean) => {
+			const agent = state.agents.find((a) => a.id === id);
+			dispatch({ type: "set-public", id, isPublic });
+			if (!agent) return;
 			dispatch({
 				type: "record",
 				entry: {
-					id: `cancel-${id}`,
-					kind: "limit",
-					actor: order.actor,
+					id: `pub-${id}-${Date.now()}`,
+					kind: "vault-config",
+					actor: OWNER_ACTOR,
+					agentId: id,
 					timestamp: Date.now(),
-					title: `Limit ${order.side} ${order.pair} @ ${order.price.toFixed(4)}`,
-					subtitle: "cancelled by owner",
-					amount: `${order.total.toLocaleString("en-US")} MON`,
-					amountSub:
-						order.filled > 0
-							? `${order.filled.toLocaleString("en-US")} filled before cancel`
-							: "no fill",
-					status: "cancelled",
+					title: `${isPublic ? "Listed" : "Unlisted"} · ${agent.name}`,
+					amount: "—",
+					status: "recorded",
 				},
 			});
 		},
-		[state.orders],
+		[state.agents],
 	);
 
-	const placeLimitOrder = useCallback(
-		(input: {
-			pair: string;
-			side: OrderSide;
-			price: number;
-			total: number;
-		}) => {
-			dispatch({
-				type: "place-order",
-				order: {
-					id: `ord-${Date.now().toString(36)}`,
-					pair: input.pair,
-					side: input.side,
-					price: input.price,
-					total: input.total,
-					filled: 0,
-					createdAt: Date.now(),
-					status: "open",
-					actor: OWNER_ACTOR,
-				},
-			});
-		},
-		[],
-	);
-
-	const submitSwap = useCallback(
-		(input: SwapInput) => {
+	const subscribe = useCallback(
+		(input: SubscribeInput) => {
+			const agent = state.agents.find((a) => a.id === input.agentId);
+			if (!agent) return;
 			startFlight(
 				{
-					id: `swap-${Date.now().toString(36)}`,
-					kind: "swap",
+					id: `sub-${Date.now().toString(36)}`,
+					kind: "subscribe",
 					actor: OWNER_ACTOR,
+					agentId: input.agentId,
 					timestamp: Date.now(),
-					title: `Swap ${input.fromSymbol} → ${input.toSymbol}`,
-					subtitle: `from ${input.sourceChain}`,
-					amount: `${input.amount.toLocaleString("en-US")} ${input.fromSymbol}`,
-					amountSub: `→ ${input.receive.toLocaleString("en-US", {
-						maximumFractionDigits: 2,
-					})} ${input.toSymbol}`,
-					status: "in-progress",
-				},
-				swapRouteSteps(input.sourceChain),
-			);
-		},
-		[startFlight],
-	);
-
-	const submitDeposit = useCallback(
-		(input: { chain: ChainId; symbol: AssetSymbol; amount: number }) => {
-			startFlight(
-				{
-					id: `dep-${Date.now().toString(36)}`,
-					kind: "deposit",
-					actor: OWNER_ACTOR,
-					timestamp: Date.now(),
-					title: `Deposit from ${input.chain}`,
-					subtitle: "via Aurora Intents",
+					title: `Subscribe · ${agent.name}`,
+					subtitle: `from ${input.chain} via Aurora Intents`,
 					amount: `${input.amount.toLocaleString("en-US")} ${input.symbol}`,
 					status: "in-progress",
 				},
 				depositRouteSteps(input.chain),
-				input.amount,
+				{ agentId: input.agentId, assets: input.amount },
 			);
 		},
-		[startFlight],
+		[state.agents, startFlight],
 	);
 
-	const submitWithdraw = useCallback(
-		(input: { chain: ChainId; amount: number }) => {
-			dispatch({ type: "withdraw", amount: input.amount });
+	const redeem = useCallback(
+		(input: RedeemInput) => {
+			const agent = state.agents.find((a) => a.id === input.agentId);
+			if (!agent) return;
+			const { assets } = applyRedeem(state, input.agentId, input.shares);
+			dispatch({ type: "redeem", agentId: input.agentId, shares: input.shares });
 			dispatch({
 				type: "record",
 				entry: {
-					id: `wd-${Date.now().toString(36)}`,
-					kind: "withdraw",
+					id: `red-${Date.now().toString(36)}`,
+					kind: "redeem",
 					actor: OWNER_ACTOR,
+					agentId: input.agentId,
 					timestamp: Date.now(),
-					title: `Withdraw to ${input.chain}`,
-					subtitle: "settled by Aurora solver",
-					amount: `${input.amount.toLocaleString("en-US")} USDC`,
+					title: `Redeem · ${agent.name}`,
+					subtitle: `to ${input.chain}`,
+					amount: `${assets.toLocaleString("en-US", { maximumFractionDigits: 2 })} USDC`,
 					status: "filled",
 				},
 			});
 		},
-		[],
+		[state],
 	);
 
 	const value: StoreValue = {
 		connected: state.connected,
-		balance: state.balance,
-		delegated,
-		available: Math.max(0, state.balance - delegated),
 		agents: state.agents.filter((a) => a.status !== "revoked"),
 		myAgents,
-		orders: state.orders,
-		openOrders,
+		positions: state.positions,
+		myPositions,
 		history: state.history,
 		inFlight: inFlightEntries,
 		tick,
@@ -506,11 +526,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		pauseAgent: (id) => setStatus(id, "paused", "Agent paused"),
 		resumeAgent: (id) => setStatus(id, "active", "Agent resumed"),
 		revokeAgent: (id) => setStatus(id, "revoked", "Access revoked"),
-		cancelOrder,
-		placeLimitOrder,
-		submitSwap,
-		submitDeposit,
-		submitWithdraw,
+		setPublic,
+		subscribe,
+		redeem,
 	};
 
 	return (
