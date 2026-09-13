@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Field, Select, TextInput } from "#/components/ui/fields";
-import { Button, Card, CardHeader, Label } from "#/components/ui/primitives";
+import {
+	Button,
+	Card,
+	CardHeader,
+	Empty,
+	Label,
+} from "#/components/ui/primitives";
 import { RouteStepper } from "#/components/ui/route";
 import { useStore } from "#/lib/store";
 import type { AssetSymbol, ChainId } from "#/lib/types";
@@ -9,19 +15,28 @@ import { ASSETS, assetsForChain, balanceOf, CHAIN_LABEL } from "#/mock/assets";
 const CHAINS: ChainId[] = ["solana", "base", "arbitrum", "ethereum"];
 
 /**
- * Deposit reuses the swap's RouteStepper on purpose. Two progress idioms for
- * the same underlying motion would teach the user that Custos has two kinds
- * of cross-chain leg, and it does not.
+ * Reuses the deposit route's RouteStepper on purpose — same underlying
+ * cross-chain motion the deposit flow already taught, now landing in one
+ * agent's vault instead of a shared balance.
  */
-export function DepositFlow({ onClose }: { onClose: () => void }) {
-	const { submitDeposit, inFlight } = useStore();
+export function SubscribeFlow({
+	agentId,
+	onClose,
+}: {
+	agentId: string;
+	onClose: () => void;
+}) {
+	const { agents, subscribe, inFlight } = useStore();
+	const agent = agents.find((a) => a.id === agentId);
 
 	const [chain, setChain] = useState<ChainId>("base");
 	const [symbol, setSymbol] = useState<AssetSymbol>("USDC");
-	const [amount, setAmount] = useState("5000");
+	const [amount, setAmount] = useState("500");
 	const [landed, setLanded] = useState(false);
 
-	const flight = inFlight.find((e) => e.kind === "deposit") ?? null;
+	const flight =
+		inFlight.find((e) => e.kind === "subscribe" && e.agentId === agentId) ??
+		null;
 	const wasFlying = useRef(false);
 
 	useEffect(() => {
@@ -36,6 +51,9 @@ export function DepositFlow({ onClose }: { onClose: () => void }) {
 		}
 	}, [flight]);
 
+	if (!agent) return null;
+
+	const blocked = agent.status !== "active";
 	const amountNumber = Number(amount) || 0;
 	const balance = balanceOf(symbol, chain);
 	const insufficient = amountNumber > balance;
@@ -45,18 +63,23 @@ export function DepositFlow({ onClose }: { onClose: () => void }) {
 
 	return (
 		<Card className="animate-enter">
-			<CardHeader title="Deposit">
+			<CardHeader title={`Subscribe · ${agent.name}`}>
 				<button
 					type="button"
 					onClick={onClose}
-					aria-label="Close deposit"
+					aria-label="Close subscribe"
 					className="ml-auto text-[18px] text-dim hover:text-ink"
 				>
 					✕
 				</button>
 			</CardHeader>
 
-			{flight ? (
+			{blocked ? (
+				<Empty
+					title="This vault isn't accepting deposits"
+					hint={`Status is ${agent.status}. Redeem stays open for existing subscribers, but new deposits are blocked until the creator resumes it.`}
+				/>
+			) : flight ? (
 				<div className="p-3">
 					<div className="flex items-baseline gap-2">
 						<span className="text-[18px]">{flight.title}</span>
@@ -78,7 +101,7 @@ export function DepositFlow({ onClose }: { onClose: () => void }) {
 							className="border-2 border-accent px-2 py-1 text-[17px] text-accent"
 							style={{ animation: "stamp 220ms steps(3, end) both" }}
 						>
-							Credited to Custos Storage.
+							Shares credited to your position.
 						</p>
 					) : null}
 
@@ -139,8 +162,9 @@ export function DepositFlow({ onClose }: { onClose: () => void }) {
 					<div>
 						<Label>Route</Label>
 						<p className="mt-1 text-[17px] text-dim">
-							{CHAIN_LABEL[chain]} → Aurora solver → Deposit Receiver → Custos
-							Storage. No manual bridging.
+							{CHAIN_LABEL[chain]} → Aurora solver → Deposit Receiver →{" "}
+							{agent.name}
+							's vault. No manual bridging.
 						</p>
 					</div>
 
@@ -150,7 +174,7 @@ export function DepositFlow({ onClose }: { onClose: () => void }) {
 						className="w-full"
 						disabled={amountNumber <= 0 || insufficient}
 						onClick={() =>
-							submitDeposit({ chain, symbol, amount: amountNumber })
+							subscribe({ agentId, chain, symbol, amount: amountNumber })
 						}
 					>
 						Send intent
