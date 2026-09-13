@@ -1,0 +1,279 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   Jade Vault palette.
+   Light is the base; dark is applied both by system preference (unless the
+   user has explicitly chosen light) and by the [data-theme="dark"] attribute,
+   so the in-app toggle wins in both directions.
+
+   Light mode is NOT an inversion of dark. The accent darkens so it stays
+   legible on paper. What is constant across modes is each token's ROLE:
+     accent = live / confirmed / working    warn = in progress / near a limit
+     sell   = failed / rejected / danger    dim  = labels and metadata only
+   ========================================================================== */
+
+:root {
+	--cx-bg: #f1f6f4;
+	--cx-surface: #ffffff;
+	--cx-surface2: #e9f2ee;
+	--cx-edge: #c0d5cc;
+	--cx-ink: #0a1f19;
+	--cx-dim: #4a6960;
+	--cx-accent: #067a5c;
+	--cx-accent-ink: #ffffff;
+	--cx-warn: #96650a;
+	--cx-sell: #c0342f;
+	--cx-shadow: rgba(10, 31, 25, 0.18);
+	--cx-scanline: rgba(10, 31, 25, 0.05);
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--cx-bg: #071a14;
+		--cx-surface: #0e251d;
+		--cx-surface2: #143327;
+		--cx-edge: #1f4438;
+		--cx-ink: #dcede5;
+		--cx-dim: #7e9a90;
+		--cx-accent: #2dd4a7;
+		--cx-accent-ink: #071a14;
+		--cx-warn: #e8b93c;
+		--cx-sell: #f2635f;
+		--cx-shadow: rgba(0, 0, 0, 0.45);
+		--cx-scanline: rgba(0, 0, 0, 0.12);
+	}
+}
+
+:root[data-theme="dark"] {
+	--cx-bg: #071a14;
+	--cx-surface: #0e251d;
+	--cx-surface2: #143327;
+	--cx-edge: #1f4438;
+	--cx-ink: #dcede5;
+	--cx-dim: #7e9a90;
+	--cx-accent: #2dd4a7;
+	--cx-accent-ink: #071a14;
+	--cx-warn: #e8b93c;
+	--cx-sell: #f2635f;
+	--cx-shadow: rgba(0, 0, 0, 0.45);
+	--cx-scanline: rgba(0, 0, 0, 0.12);
+}
+
+@theme inline {
+	--color-bg: var(--cx-bg);
+	--color-surface: var(--cx-surface);
+	--color-surface2: var(--cx-surface2);
+	--color-edge: var(--cx-edge);
+	--color-ink: var(--cx-ink);
+	--color-dim: var(--cx-dim);
+	--color-accent: var(--cx-accent);
+	--color-accent-ink: var(--cx-accent-ink);
+	--color-warn: var(--cx-warn);
+	--color-sell: var(--cx-sell);
+
+	--font-pixel: "VT323", ui-monospace, "Courier New", monospace;
+
+	/* Hard shadows. Zero blur, zero spread — a blurred shadow is the fastest
+	   way to make a pixel interface look like a generic web app. */
+	--shadow-pixel: 4px 4px 0 var(--cx-shadow);
+	--shadow-pixel-sm: 2px 2px 0 var(--cx-shadow);
+	--shadow-pixel-lg: 6px 6px 0 var(--cx-shadow);
+
+	--animate-blink: blink 1.06s steps(2, end) infinite;
+	--animate-pulse-led: pulse-led 1s steps(2, end) infinite;
+	--animate-march: march 2s linear infinite;
+	--animate-enter: enter 120ms steps(3, end) both;
+	--animate-stamp: stamp 500ms steps(5, end) both;
+	--animate-flicker: flicker 120ms steps(2, end) 2;
+}
+
+@keyframes blink {
+	0%,
+	50% {
+		opacity: 1;
+	}
+	50.01%,
+	100% {
+		opacity: 0;
+	}
+}
+
+@keyframes pulse-led {
+	0%,
+	50% {
+		opacity: 1;
+	}
+	50.01%,
+	100% {
+		opacity: 0.3;
+	}
+}
+
+@keyframes march {
+	to {
+		background-position-y: 8px;
+	}
+}
+
+@keyframes enter {
+	from {
+		opacity: 0;
+		transform: translateY(2px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+@keyframes stamp {
+	from {
+		opacity: 0;
+		transform: scale(1.4);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+
+@keyframes flicker {
+	50% {
+		opacity: 0.15;
+	}
+}
+
+@keyframes segment-in {
+	from {
+		transform: scaleX(0);
+	}
+	to {
+		transform: scaleX(1);
+	}
+}
+
+@keyframes draw-seal {
+	from {
+		clip-path: inset(0 100% 0 0);
+	}
+	to {
+		clip-path: inset(0 0 0 0);
+	}
+}
+
+@layer base {
+	* {
+		box-sizing: border-box;
+	}
+
+	html,
+	body,
+	#app {
+		min-height: 100%;
+	}
+
+	html {
+		color-scheme: light dark;
+	}
+
+	body {
+		margin: 0;
+		background: var(--cx-bg);
+		color: var(--cx-ink);
+		font-family: var(--font-pixel);
+		/* VT323 sets far too tight by default; without this, uppercase labels
+		   read as a single blurred word at small sizes. */
+		letter-spacing: 0.3px;
+		font-size: 19px;
+		line-height: 1.25;
+		-webkit-font-smoothing: none;
+		font-smooth: never;
+	}
+
+	input,
+	button,
+	select,
+	textarea {
+		font: inherit;
+		letter-spacing: inherit;
+		color: inherit;
+		background: none;
+		border: none;
+		border-radius: 0;
+	}
+
+	button {
+		cursor: pointer;
+	}
+
+	/* Money must never jitter as it ticks. */
+	input[type="text"],
+	input[type="number"],
+	.tnum {
+		font-variant-numeric: tabular-nums;
+	}
+
+	::placeholder {
+		color: var(--cx-dim);
+		opacity: 1;
+	}
+
+	:focus-visible {
+		outline: 2px solid var(--cx-accent);
+		outline-offset: 1px;
+	}
+
+	::selection {
+		background: var(--cx-accent);
+		color: var(--cx-accent-ink);
+	}
+}
+
+@utility scanlines {
+	position: relative;
+}
+
+@utility scanlines-overlay {
+	content: "";
+	position: fixed;
+	inset: 0;
+	z-index: 50;
+	pointer-events: none;
+	background: repeating-linear-gradient(
+		to bottom,
+		var(--cx-scanline) 0 1px,
+		transparent 1px 3px
+	);
+}
+
+/* Marching dashed connector used by the route stepper. Only animates between
+   a completed step and the active one — a fully static route should not move. */
+@utility dash-v {
+	background-image: repeating-linear-gradient(
+		to bottom,
+		var(--cx-edge) 0 2px,
+		transparent 2px 4px
+	);
+	background-size: 2px 8px;
+	background-repeat: repeat-y;
+}
+
+@utility dash-h {
+	background-image: repeating-linear-gradient(
+		to right,
+		var(--cx-edge) 0 2px,
+		transparent 2px 4px
+	);
+	background-size: 8px 2px;
+	background-repeat: repeat-x;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.001ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.001ms !important;
+	}
+}
