@@ -1,14 +1,12 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { AgentSealBadge } from "#/components/AgentSealBadge";
-import { DepositFlow } from "#/components/profile/DepositFlow";
 import { EditAgentPanel } from "#/components/profile/EditAgentPanel";
 import { RegisterAgentForm } from "#/components/profile/RegisterAgentForm";
-import { VaultStrip } from "#/components/profile/VaultStrip";
-import { WithdrawPanel } from "#/components/profile/WithdrawPanel";
 import { Button, Card, Empty, Label } from "#/components/ui/primitives";
 import { Sigil } from "#/components/ui/Sigil";
-import { shortAddress } from "#/lib/format";
+import { RedeemPanel } from "#/components/vault/RedeemPanel";
+import { formatAmount, shortAddress } from "#/lib/format";
 import { OWNER_ADDRESS, useStore } from "#/lib/store";
 
 export const Route = createFileRoute("/profile")({
@@ -17,13 +15,20 @@ export const Route = createFileRoute("/profile")({
 
 type Panel =
 	| { kind: "none" }
-	| { kind: "deposit" }
-	| { kind: "withdraw" }
 	| { kind: "register" }
-	| { kind: "edit"; id: string; danger: boolean };
+	| { kind: "edit"; id: string; danger: boolean }
+	| { kind: "redeem"; agentId: string };
 
 function ProfilePage() {
-	const { connected, connect, myAgents, pauseAgent, resumeAgent } = useStore();
+	const {
+		connected,
+		connect,
+		myAgents,
+		myPositions,
+		agents,
+		pauseAgent,
+		resumeAgent,
+	} = useStore();
 	const [panel, setPanel] = useState<Panel>({ kind: "none" });
 
 	const editing =
@@ -36,7 +41,7 @@ function ProfilePage() {
 			<Card>
 				<Empty
 					title="Wallet not connected"
-					hint="Your vault, your agents and their allowances live behind your wallet. Nothing here is readable without it."
+					hint="Your agents and vault positions live behind your wallet. Nothing here is readable without it."
 					action={
 						<Button variant="solid" size="lg" onClick={connect}>
 							Connect wallet
@@ -49,25 +54,20 @@ function ProfilePage() {
 
 	return (
 		<div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-			<div className="min-w-0 space-y-4 lg:flex-1">
+			<div className="min-w-0 space-y-6 lg:flex-1">
 				<div className="flex items-center gap-3">
 					<Sigil address={OWNER_ADDRESS} size="md" tone="owner" />
 					<div>
 						<div className="text-[21px]">
 							{shortAddress(OWNER_ADDRESS, 10, 6)}
 						</div>
-						<Label>Owner wallet</Label>
+						<Label>Connected wallet</Label>
 					</div>
 				</div>
 
-				<VaultStrip
-					onDeposit={() => setPanel({ kind: "deposit" })}
-					onWithdraw={() => setPanel({ kind: "withdraw" })}
-				/>
-
 				<div>
 					<div className="mb-2 flex items-center gap-3">
-						<Label>My agents</Label>
+						<Label>Agents I created</Label>
 						<span className="text-[17px] text-dim">{myAgents.length}</span>
 					</div>
 
@@ -112,8 +112,6 @@ function ProfilePage() {
 							/>
 						))}
 
-						{/* The empty slot is a control, not decoration: registering is the
-						    action this page exists to make routine. */}
 						<button
 							type="button"
 							onClick={() => setPanel({ kind: "register" })}
@@ -125,14 +123,69 @@ function ProfilePage() {
 						</button>
 					</div>
 				</div>
+
+				<div>
+					<div className="mb-2 flex items-center gap-3">
+						<Label>Vaults I'm subscribed to</Label>
+						<span className="text-[17px] text-dim">{myPositions.length}</span>
+					</div>
+
+					{myPositions.length === 0 ? (
+						<Empty
+							title="No positions yet"
+							hint="Subscribe to a vault from the marketplace to see it here."
+						/>
+					) : (
+						<Card>
+							<div className="divide-y divide-edge">
+								{myPositions.map((position) => {
+									const agent = agents.find((a) => a.id === position.agentId);
+									if (!agent) return null;
+									const value = position.shares * agent.vault.sharePrice;
+									const pnl = value - position.depositedAssets;
+									return (
+										<div
+											key={position.agentId}
+											className="flex items-center gap-3 p-3"
+										>
+											<Sigil address={agent.agentAddress} size="sm" />
+											<Link
+												to="/agents/$agentId"
+												params={{ agentId: agent.id }}
+												className="text-[18px] hover:text-accent"
+											>
+												{agent.name}
+											</Link>
+											<div className="ml-auto text-right">
+												<div className="tnum text-[18px]">
+													{formatAmount(value)} USDC
+												</div>
+												<div
+													className={`tnum text-[16px] ${pnl < 0 ? "text-sell" : "text-accent"}`}
+												>
+													{pnl >= 0 ? "+" : ""}
+													{formatAmount(pnl)}
+												</div>
+											</div>
+											<Button
+												size="sm"
+												onClick={() =>
+													setPanel({ kind: "redeem", agentId: agent.id })
+												}
+											>
+												Redeem
+											</Button>
+										</div>
+									);
+								})}
+							</div>
+						</Card>
+					)}
+				</div>
 			</div>
 
 			<aside className="w-full lg:sticky lg:top-[70px] lg:w-[390px] lg:shrink-0">
-				{panel.kind === "deposit" ? (
-					<DepositFlow onClose={() => setPanel({ kind: "none" })} />
-				) : panel.kind === "withdraw" ? (
-					<WithdrawPanel onClose={() => setPanel({ kind: "none" })} />
-				) : panel.kind === "register" ? (
+				{panel.kind === "register" ? (
 					<RegisterAgentForm onClose={() => setPanel({ kind: "none" })} />
 				) : editing ? (
 					<EditAgentPanel
@@ -141,11 +194,16 @@ function ProfilePage() {
 						focusDanger={panel.kind === "edit" && panel.danger}
 						onClose={() => setPanel({ kind: "none" })}
 					/>
+				) : panel.kind === "redeem" ? (
+					<RedeemPanel
+						agentId={panel.agentId}
+						onClose={() => setPanel({ kind: "none" })}
+					/>
 				) : (
 					<Card>
 						<Empty
 							title="Nothing selected"
-							hint="Pick an agent to change its allowance, or register a new one."
+							hint="Pick an agent to edit, or register a new one."
 						/>
 					</Card>
 				)}
