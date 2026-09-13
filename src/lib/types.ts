@@ -13,9 +13,8 @@ export type ResetPeriod = "daily" | "weekly" | "monthly" | "never";
 export type AgentStatus = "active" | "paused" | "revoked";
 
 /**
- * Derived, not stored on chain. The brief keeps exactly four fields per agent
- * (name, description, allowance, agent wallet). These numbers would come from
- * an off-chain indexer over Trade Module events — see the design spec §8.
+ * Derived, not stored on chain — an off-chain indexer would compute these
+ * from SwapExecuted events. See design spec §3.
  */
 export type AgentStats = {
 	volume30d: number;
@@ -23,39 +22,88 @@ export type AgentStats = {
 	pnl30d: number;
 };
 
+/**
+ * One ERC-4626 vault per agent (spec v1 D13). `sharePrice` is the single
+ * source of truth for performance; everything else is a trust signal shown
+ * next to it.
+ */
+export type Vault = {
+	address: string;
+	asset: "USDC";
+	/** idle balance + yield position — the ERC-4626 totalAssets(). */
+	totalAssets: number;
+	totalShares: number;
+	sharePrice: number;
+	/** For the sparkline. Oldest first. */
+	sharePriceHistory: { t: number; price: number }[];
+	highWaterMark: number;
+	/** Immutable after register (D18). Basis points, 0-5000 (0-50%). */
+	feeRateBps: number;
+	/** Immutable (D21). 0 = circuit breaker disabled, else 100-5000 (1%-50%). */
+	maxDrawdownBps: number;
+	/** Immutable (D24) — the reserve ratio. 1000-9500 (10%-95%). */
+	maxUtilizationBps: number;
+	/** Immutable (D22). */
+	yieldEnabled: boolean;
+	yieldApyBps: number;
+	/** Locked forever at the dead address (D15) — informational only. */
+	seedAssets: number;
+	circuitBreakerTripped: boolean;
+};
+
+/** On-chain-attested creator credibility (spec v1 D23). */
+export type NansenBadge = {
+	verified: boolean;
+	label: "Smart Trader" | "Fund" | "Whale" | null;
+	pnlUsd: number;
+	winRatePct: number;
+	attestedAt: number;
+	/** True once `attestedAt` is more than 30 days old. */
+	stale: boolean;
+};
+
+/** Smart Money netflow signal for one token a vault has traded (spec §12.3). */
+export type SmartMoneySignal = {
+	tokenSymbol: AssetSymbol;
+	netFlow24h: number;
+	netFlow7d: number;
+	trend: "accumulating" | "distributing" | "neutral";
+};
+
+/** A subscriber's holding in one vault. Not a field on Agent — a vault can
+ *  have many positions, and "vaults I'm subscribed to" needs its own list. */
+export type Position = {
+	agentId: string;
+	subscriberAddress: string;
+	shares: number;
+	/** Cost basis, for the P/L readout. */
+	depositedAssets: number;
+};
+
 export type Agent = {
 	id: string;
 	name: string;
 	description: string;
-	/** The wallet the agent signs with. It can only ever touch the Custos contract. */
+	/** The wallet the agent signs with. It can only ever call executeSwap. */
 	agentAddress: string;
-	/** Registration is always signed by the owner, never the agent. */
-	ownerAddress: string;
+	creatorAddress: string;
+	/** D16 — hides from the marketplace listing. On-chain deposit stays open. */
+	isPublic: boolean;
+	/** Per-period trading limit, mutable by the creator. Independent of the
+	 *  immutable reserve ratio on `vault.maxUtilizationBps` (D24). */
 	allowance: number;
 	used: number;
 	resetPeriod: ResetPeriod;
 	status: AgentStatus;
 	registeredAt: number;
+	vault: Vault;
+	nansen: NansenBadge | null;
 	stats: AgentStats;
 };
 
 export type Actor =
 	| { kind: "owner"; name: string; address: string }
 	| { kind: "agent"; agentId: string; name: string; address: string };
-
-export type OrderSide = "buy" | "sell";
-
-export type LimitOrder = {
-	id: string;
-	pair: string;
-	side: OrderSide;
-	price: number;
-	total: number;
-	filled: number;
-	createdAt: number;
-	status: "open" | "filled" | "cancelled";
-	actor: Actor;
-};
 
 export type RouteStepState = "done" | "active" | "pending" | "failed";
 
@@ -67,24 +115,23 @@ export type RouteStep = {
 };
 
 export type ActivityKind =
-	| "swap"
-	| "limit"
 	| "agent-trade"
-	| "deposit"
-	| "withdraw"
-	| "allowance-change";
+	| "subscribe"
+	| "redeem"
+	| "seed-deposit"
+	| "fee-mint"
+	| "circuit-breaker"
+	| "vault-config";
 
-export type ActivityStatus =
-	| "filled"
-	| "in-progress"
-	| "failed"
-	| "recorded"
-	| "cancelled";
+export type ActivityStatus = "filled" | "in-progress" | "failed" | "recorded";
 
 export type ActivityEntry = {
 	id: string;
 	kind: ActivityKind;
 	actor: Actor;
+	/** The agent/vault this entry concerns. Every remaining kind has one —
+	 *  this is what the vault detail page filters "recent activity" by. */
+	agentId: string;
 	timestamp: number;
 	title: string;
 	subtitle?: string;
@@ -94,30 +141,9 @@ export type ActivityEntry = {
 	txHash?: string;
 	/** Present while a cross-chain route is still resolving. */
 	steps?: RouteStep[];
-	/** Present for a limit order that is partially filled. */
-	fill?: { filled: number; total: number };
 	/** Consecutive trades from one agent collapse into a single row. */
 	groupCount?: number;
 	groupChildren?: ActivityEntry[];
 	/** Why a rejected action was rejected, e.g. "allowance exhausted". */
 	reason?: string;
-	orderId?: string;
-};
-
-export type Vault = {
-	asset: AssetSymbol;
-	balance: number;
-	/** Sum of every active agent's allowance. */
-	delegated: number;
-};
-
-export type SwapMode = "market" | "limit";
-
-export type Quote = {
-	rate: number;
-	receive: number;
-	minimumReceived: number;
-	priceImpact: number;
-	networkFee: number;
-	protocolFee: number;
 };

@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Field, Select, TextInput } from "#/components/ui/fields";
-import { AllowanceMeter, AllowanceReadout } from "#/components/ui/meters";
+import { Field, LockedValue, Select, TextInput } from "#/components/ui/fields";
 import { Button, Card, CardHeader, Label } from "#/components/ui/primitives";
 import { Sigil } from "#/components/ui/Sigil";
-import { formatAmount } from "#/lib/format";
 import { useStore } from "#/lib/store";
 import type { Agent, ResetPeriod } from "#/lib/types";
 
@@ -18,18 +16,15 @@ export function EditAgentPanel({
 	focusDanger?: boolean;
 	onClose: () => void;
 }) {
-	const { setAllowance, pauseAgent, resumeAgent, revokeAgent, available } =
+	const { setAllowance, setPublic, pauseAgent, resumeAgent, revokeAgent } =
 		useStore();
 
-	// Keyed by agent id at the call site, so selecting a different agent
-	// remounts the panel rather than leaving the previous one's numbers behind.
 	const [allowance, setAllowanceInput] = useState(String(agent.allowance));
 	const [period, setPeriod] = useState<ResetPeriod>(agent.resetPeriod);
+	const [isPublic, setIsPublicInput] = useState(agent.isPublic);
 	const [confirm, setConfirm] = useState("");
 	const dangerRef = useRef<HTMLInputElement>(null);
 
-	// REVOKE on the card scrolls here rather than firing. The destructive action
-	// should cost a deliberate second look, not a single misplaced click.
 	useEffect(() => {
 		if (!focusDanger) return;
 		dangerRef.current?.scrollIntoView({ block: "center" });
@@ -37,13 +32,10 @@ export function EditAgentPanel({
 	}, [focusDanger]);
 
 	const next = Number(allowance) || 0;
-	// A paused agent's allowance is not counted as delegated, so it must not be
-	// added back in here or the vault would appear to hold more than it does.
-	const headroom =
-		available + (agent.status === "active" ? agent.allowance : 0);
-	const belowUsage = next > 0 && next < agent.used;
-	const overVault = next > headroom;
-	const changed = next !== agent.allowance || period !== agent.resetPeriod;
+	const changed =
+		next !== agent.allowance ||
+		period !== agent.resetPeriod ||
+		isPublic !== agent.isPublic;
 	const paused = agent.status === "paused";
 
 	return (
@@ -65,47 +57,16 @@ export function EditAgentPanel({
 					<span className="truncate text-[21px]">{agent.name}</span>
 				</div>
 
-				<div>
-					<Label>Current usage</Label>
-					<div className="mt-1">
-						<AllowanceMeter
-							used={agent.used}
-							allowance={next > 0 ? next : agent.allowance}
-							tall
-							animate={false}
-						/>
-					</div>
-					<div className="mt-1">
-						<AllowanceReadout
-							used={agent.used}
-							allowance={next > 0 ? next : agent.allowance}
-						/>
-					</div>
-				</div>
-
-				<Field
-					label="Allowance"
-					hint={`up to ${formatAmount(headroom)} USDC`}
-					error={overVault ? "Above what the vault can back" : undefined}
-				>
+				<Field label="Allowance" hint="per-period trading limit">
 					<TextInput
 						inputMode="decimal"
 						value={allowance}
 						onChange={(e) =>
 							setAllowanceInput(e.target.value.replace(/[^0-9.]/g, ""))
 						}
-						invalid={overVault}
 						className="tnum"
 					/>
 				</Field>
-
-				{belowUsage ? (
-					<p className="border-2 border-warn px-2 py-1 text-[17px] text-warn">
-						New cap is below current usage. This agent cannot open new positions
-						until usage falls below {formatAmount(next)}. Open orders are not
-						cancelled.
-					</p>
-				) : null}
 
 				<Field label="Reset period">
 					<Select
@@ -120,11 +81,45 @@ export function EditAgentPanel({
 					</Select>
 				</Field>
 
+				<label className="flex items-center gap-2 text-[17px]">
+					<input
+						type="checkbox"
+						checked={isPublic}
+						onChange={(e) => setIsPublicInput(e.target.checked)}
+					/>
+					Listed publicly on the marketplace
+				</label>
+
+				<div className="space-y-2 border-t border-edge pt-2">
+					<Label>Locked at registration</Label>
+					<LockedValue>
+						{(agent.vault.feeRateBps / 100).toFixed(1)}% perf. fee
+					</LockedValue>
+					<LockedValue>
+						{agent.vault.maxDrawdownBps === 0
+							? "circuit breaker disabled"
+							: `${(agent.vault.maxDrawdownBps / 100).toFixed(0)}% max drawdown`}
+					</LockedValue>
+					<LockedValue>
+						{(agent.vault.maxUtilizationBps / 100).toFixed(0)}% max utilization
+					</LockedValue>
+					<LockedValue>
+						{agent.vault.yieldEnabled
+							? "idle yield enabled"
+							: "idle yield disabled"}
+					</LockedValue>
+				</div>
+
 				<div className="flex gap-2">
 					<Button
 						variant="solid"
-						disabled={!changed || overVault || next <= 0}
-						onClick={() => setAllowance(agent.id, next, period)}
+						disabled={!changed || next <= 0}
+						onClick={() => {
+							if (next !== agent.allowance || period !== agent.resetPeriod) {
+								setAllowance(agent.id, next, period);
+							}
+							if (isPublic !== agent.isPublic) setPublic(agent.id, isPublic);
+						}}
 					>
 						Save
 					</Button>
@@ -138,10 +133,10 @@ export function EditAgentPanel({
 				</div>
 
 				<p className="text-[16px] text-dim">
-					Pausing stops new actions immediately. The seal stays on the registry.
+					Pausing stops new deposits and trades immediately. Redeem always stays
+					open for existing subscribers.
 				</p>
 
-				{/* ----------------------- danger zone ----------------------- */}
 				<div className="mt-4 border-2 border-sell">
 					<div className="border-b-2 border-sell px-2 py-1">
 						<span className="text-[17px] uppercase tracking-[2px] text-sell">
@@ -150,8 +145,8 @@ export function EditAgentPanel({
 					</div>
 					<div className="space-y-2 p-2">
 						<p className="text-[17px] text-dim">
-							Revoking removes this agent's access to the contract permanently.
-							Funds are never at risk; the seal is.
+							Revoking removes this agent's ability to trade permanently. Funds
+							are never at risk — subscribers can always redeem.
 						</p>
 						<Field label="Type the agent name to confirm">
 							<TextInput

@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { FillBar } from "#/components/ui/meters";
 import type { PillTone } from "#/components/ui/primitives";
 import { cx, StatusPill } from "#/components/ui/primitives";
 import { RouteStepper } from "#/components/ui/route";
@@ -17,16 +16,8 @@ function statusPill(entry: ActivityEntry): { tone: PillTone; label: string } {
 		};
 	}
 	if (entry.status === "failed") return { tone: "fail", label: "failed" };
-	if (entry.status === "cancelled")
-		return { tone: "neutral", label: "cancelled" };
 	if (entry.status === "recorded")
 		return { tone: "neutral", label: "recorded" };
-	if (entry.fill && entry.fill.filled < entry.fill.total) {
-		return {
-			tone: "progress",
-			label: `partial ${Math.round((entry.fill.filled / entry.fill.total) * 100)}%`,
-		};
-	}
 	return { tone: "ok", label: "filled" };
 }
 
@@ -64,8 +55,6 @@ export function ActivityRow({
 				entry.status === "failed" && "bg-sell/5",
 			)}
 		>
-			{/* Below lg this reflows to two lines rather than shrinking to
-			    unreadable columns — a phone gets fewer rows, not smaller ones. */}
 			<div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 lg:flex-nowrap">
 				<Time timestamp={entry.timestamp} />
 
@@ -130,12 +119,6 @@ export function ActivityRow({
 					<span className="w-[18px] shrink-0" aria-hidden />
 				)}
 			</div>
-
-			{entry.fill && entry.fill.filled < entry.fill.total ? (
-				<div className="mt-1 max-w-[280px]">
-					<FillBar filled={entry.fill.filled} total={entry.fill.total} />
-				</div>
-			) : null}
 
 			{open && entry.steps?.length ? (
 				<div className="mt-2 border-l-2 border-edge pl-3">

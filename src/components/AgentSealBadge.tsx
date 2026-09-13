@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { formatCompactUsd, formatPercent, shortAddress } from "#/lib/format";
 import type { Agent } from "#/lib/types";
-import { AllowanceMeter, AllowanceReadout } from "./ui/meters";
+import { NansenBadgeChip } from "./NansenBadge";
+import { ReserveRatioBar, SharePriceSpark } from "./ui/meters";
 import { Card, cx, Label, Led, StatusPill } from "./ui/primitives";
 import { Sigil } from "./ui/Sigil";
 
@@ -23,10 +24,9 @@ function Stat({
 }
 
 /**
- * One component, three homes: the public directory, the owner's profile, and
- * (as a sigil alone) the actor cell in activity rows. Reusing it is what makes
- * an agent feel like the same entity wherever it turns up, rather than three
- * different records that happen to share a name.
+ * One component, three homes: the marketplace, the owner's profile, and (as
+ * a sigil alone) the actor cell in activity rows. Reusing it is what makes
+ * an agent feel like the same entity wherever it turns up.
  */
 export function AgentSealBadge({
 	agent,
@@ -34,16 +34,26 @@ export function AgentSealBadge({
 	selected,
 	actions,
 	showStats = true,
+	subscriberCount,
 }: {
 	agent: Agent;
 	onSelect?: () => void;
 	selected?: boolean;
 	actions?: ReactNode;
 	showStats?: boolean;
+	/** Omit on the profile page (not meaningful there) — only the marketplace
+	 *  card passes this. */
+	subscriberCount?: number;
 }) {
 	const paused = agent.status === "paused";
-	const over = agent.used > agent.allowance;
-	const fresh = agent.stats.trades30d === 0;
+	const fresh = agent.vault.sharePriceHistory.length < 2;
+	const sharePriceChangePct =
+		((agent.vault.sharePrice - agent.vault.sharePriceHistory[0].price) /
+			agent.vault.sharePriceHistory[0].price) *
+		100;
+	const reserved =
+		agent.vault.totalAssets * (agent.vault.maxUtilizationBps / 10_000);
+	const utilized = agent.vault.totalAssets - reserved;
 
 	const body = (
 		<>
@@ -72,20 +82,37 @@ export function AgentSealBadge({
 				{agent.description}
 			</p>
 
-			<div className="mt-2">
-				<AllowanceMeter used={agent.used} allowance={agent.allowance} />
-				<div className="mt-1 flex items-center gap-2">
-					<AllowanceReadout used={agent.used} allowance={agent.allowance} />
-					{paused ? (
-						<span className="ml-auto">
-							<StatusPill>paused</StatusPill>
-						</span>
-					) : over ? (
-						<span className="ml-auto">
-							<StatusPill tone="fail">blocked</StatusPill>
-						</span>
-					) : null}
+			<div className="mt-2 flex items-center gap-2">
+				<NansenBadgeChip nansen={agent.nansen} />
+				{agent.vault.circuitBreakerTripped ? (
+					<StatusPill tone="fail">breaker tripped</StatusPill>
+				) : paused ? (
+					<StatusPill>paused</StatusPill>
+				) : null}
+			</div>
+
+			<div className="mt-2 flex items-end justify-between gap-3">
+				<div>
+					<div
+						className={cx(
+							"tnum text-[21px]",
+							sharePriceChangePct < 0 ? "text-sell" : "text-accent",
+						)}
+					>
+						{agent.vault.sharePrice.toFixed(4)}
+					</div>
+					<Label className="text-[14px] tracking-[1px]">
+						share price {fresh ? "" : formatPercent(sharePriceChangePct, 1)}
+					</Label>
 				</div>
+				<SharePriceSpark history={agent.vault.sharePriceHistory} />
+			</div>
+
+			<div className="mt-2">
+				<ReserveRatioBar utilized={utilized} reserved={reserved} />
+				<Label className="mt-1 text-[14px] tracking-[1px]">
+					{(100 - agent.vault.maxUtilizationBps / 100).toFixed(0)}% reserved
+				</Label>
 			</div>
 
 			{showStats ? (
@@ -97,18 +124,21 @@ export function AgentSealBadge({
 					) : (
 						<>
 							<Stat
-								label="30d vol"
-								value={formatCompactUsd(agent.stats.volume30d)}
+								label="TVL"
+								value={formatCompactUsd(agent.vault.totalAssets)}
 							/>
 							<Stat
-								label="trades"
-								value={agent.stats.trades30d.toLocaleString("en-US")}
+								label="fee"
+								value={`${(agent.vault.feeRateBps / 100).toFixed(1)}%`}
 							/>
-							<Stat
-								label="30d pnl"
-								value={formatPercent(agent.stats.pnl30d, 1)}
-								tone={agent.stats.pnl30d < 0 ? "text-sell" : "text-accent"}
-							/>
+							{subscriberCount !== undefined ? (
+								<Stat label="subscribers" value={String(subscriberCount)} />
+							) : (
+								<Stat
+									label="30d vol"
+									value={formatCompactUsd(agent.stats.volume30d)}
+								/>
+							)}
 						</>
 					)}
 				</div>
@@ -130,8 +160,6 @@ export function AgentSealBadge({
 
 	return (
 		<Card className={cx(shell, "hover:border-accent")}>
-			{/* The card is clickable, but the action row inside it must not be
-			    swallowed by that click — so the button is an overlay, not a wrapper. */}
 			<button
 				type="button"
 				onClick={onSelect}

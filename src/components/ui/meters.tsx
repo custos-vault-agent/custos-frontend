@@ -110,103 +110,167 @@ export function AllowanceReadout({
 
 /* -------------------------------------------------------------------------- */
 
-/** Splits the vault into what agents may touch and what only the owner may. */
-export function VaultSplitBar({
-	delegated,
-	available,
+/** Splits a vault's TVL into what the agent may trade and what must stay
+ *  liquid for redemptions — the reserve ratio (spec D24). */
+export function ReserveRatioBar({
+	utilized,
+	reserved,
 }: {
-	delegated: number;
-	available: number;
+	utilized: number;
+	reserved: number;
 }) {
-	const total = delegated + available;
+	const total = utilized + reserved;
 	if (total <= 0) return null;
 
 	return (
 		<span className="flex h-[13px] gap-[2px]">
 			<span
 				className="bg-warn"
-				style={{ flexGrow: delegated, flexBasis: 0 }}
+				style={{ flexGrow: utilized, flexBasis: 0 }}
 				aria-hidden
 			/>
 			<span
 				className="bg-accent"
-				style={{ flexGrow: available, flexBasis: 0 }}
+				style={{ flexGrow: reserved, flexBasis: 0 }}
 				aria-hidden
 			/>
 		</span>
 	);
 }
 
-export function VaultLegend({
-	delegated,
-	available,
+export function ReserveRatioLegend({
+	utilized,
+	reserved,
 	meta,
 }: {
-	delegated: number;
-	available: number;
+	utilized: number;
+	reserved: number;
 	meta?: string;
 }) {
 	return (
 		<div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[17px] text-dim">
 			<span className="flex items-center gap-2">
 				<span className="size-[9px] bg-warn" aria-hidden />
-				delegated to agents{" "}
-				<b className="tnum font-normal text-ink">{formatAmount(delegated)}</b>
+				tradable{" "}
+				<b className="tnum font-normal text-ink">{formatAmount(utilized)}</b>
 			</span>
 			<span className="flex items-center gap-2">
 				<span className="size-[9px] bg-accent" aria-hidden />
-				available{" "}
-				<b className="tnum font-normal text-ink">{formatAmount(available)}</b>
+				reserved{" "}
+				<b className="tnum font-normal text-ink">{formatAmount(reserved)}</b>
 			</span>
 			{meta ? <span className="ml-auto">{meta}</span> : null}
 		</div>
 	);
 }
 
-/* -------------------------------------------------------------------------- */
-
-export function FillBar({
-	filled,
-	total,
+/**
+ * How much drawdown room is left before the circuit breaker trips (D21).
+ * Reads like AllowanceMeter but the tone logic is inverted: full green means
+ * far from the threshold, and it turns red as the price nears the floor.
+ */
+export function DrawdownGauge({
+	sharePrice,
+	highWaterMark,
+	maxDrawdownBps,
+	tripped,
 	segments = 10,
 }: {
-	filled: number;
-	total: number;
+	sharePrice: number;
+	highWaterMark: number;
+	maxDrawdownBps: number;
+	tripped: boolean;
 	segments?: number;
 }) {
-	const pct = total > 0 ? (filled / total) * 100 : 0;
+	if (maxDrawdownBps === 0) {
+		return <p className="text-[17px] text-dim">Circuit breaker disabled.</p>;
+	}
+
+	const floor = highWaterMark * (1 - maxDrawdownBps / 10_000);
+	const room = highWaterMark - floor;
+	const used = Math.min(room, Math.max(0, highWaterMark - sharePrice));
+	const pct = room > 0 ? (used / room) * 100 : 0;
+
 	return (
-		<span className="mt-1 flex gap-[2px]">
-			{Array.from({ length: segments }, (_, i) => (
-				<span
-					// biome-ignore lint/suspicious/noArrayIndexKey: fixed-length meter
-					key={i}
-					className={cx(
-						"h-[7px] flex-1",
-						((i + 1) / segments) * 100 <= pct ? "bg-accent" : "bg-edge",
-					)}
-				/>
-			))}
+		<span
+			className="flex gap-[2px]"
+			role="img"
+			aria-label={
+				tripped
+					? "circuit breaker tripped"
+					: `${Math.round(pct)}% of drawdown budget used`
+			}
+		>
+			{Array.from({ length: segments }, (_, i) => {
+				const threshold = ((i + 1) / segments) * 100;
+				const filled = tripped || threshold <= pct;
+				const tone = tripped ? "sell" : threshold > 70 ? "warn" : "accent";
+				return (
+					<Segment
+						// biome-ignore lint/suspicious/noArrayIndexKey: fixed-length meter
+						key={i}
+						index={i}
+						filled={filled}
+						tone={tone}
+						tall
+						animate={false}
+					/>
+				);
+			})}
 		</span>
 	);
 }
 
-/** Price impact, as severity rather than as a number to interpret. */
-export function ImpactMeter({ impact }: { impact: number }) {
-	const segments = 12;
-	const active = Math.max(1, Math.ceil((impact / 3) * segments));
-	const tone =
-		impact >= 1.5 ? "bg-sell" : impact >= 0.6 ? "bg-warn" : "bg-accent";
+/** A minimal share-price trend line — no chart library, one polyline. Flat
+ *  and centered when there's no history yet (a brand new vault). */
+export function SharePriceSpark({
+	history,
+	width = 96,
+	height = 28,
+}: {
+	history: { t: number; price: number }[];
+	width?: number;
+	height?: number;
+}) {
+	if (history.length < 2) {
+		return (
+			<svg width={width} height={height} aria-hidden>
+				<title>Share price trend — no history yet</title>
+				<line
+					x1={0}
+					y1={height / 2}
+					x2={width}
+					y2={height / 2}
+					stroke="var(--cx-edge)"
+					strokeWidth={2}
+				/>
+			</svg>
+		);
+	}
+
+	const prices = history.map((p) => p.price);
+	const min = Math.min(...prices);
+	const max = Math.max(...prices);
+	const span = max - min || 1;
+	const rising = prices[prices.length - 1] >= prices[0];
+
+	const points = history
+		.map((p, i) => {
+			const x = (i / (history.length - 1)) * width;
+			const y = height - ((p.price - min) / span) * height;
+			return `${x.toFixed(1)},${y.toFixed(1)}`;
+		})
+		.join(" ");
 
 	return (
-		<span className="flex gap-[2px]">
-			{Array.from({ length: segments }, (_, i) => (
-				<span
-					// biome-ignore lint/suspicious/noArrayIndexKey: fixed-length meter
-					key={i}
-					className={cx("h-[7px] flex-1", i < active ? tone : "bg-edge")}
-				/>
-			))}
-		</span>
+		<svg width={width} height={height} aria-hidden>
+			<title>{`Share price trend, ${rising ? "rising" : "falling"}`}</title>
+			<polyline
+				points={points}
+				fill="none"
+				stroke={rising ? "var(--cx-accent)" : "var(--cx-sell)"}
+				strokeWidth={2}
+			/>
+		</svg>
 	);
 }
