@@ -10,8 +10,7 @@ import { Button, cx } from "./ui/primitives";
 import { Sigil } from "./ui/Sigil";
 
 const NAV = [
-	{ to: "/", label: "swap" },
-	{ to: "/agents", label: "agents" },
+	{ to: "/", label: "agents" },
 	{ to: "/activity", label: "activity" },
 	{ to: "/profile", label: "profile" },
 ] as const;

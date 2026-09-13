@@ -1,149 +1,129 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { GateSidecar } from "#/components/swap/GateSidecar";
-import { SwapCard } from "#/components/swap/SwapCard";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
+import { AgentSealBadge } from "#/components/AgentSealBadge";
+import { TextInput } from "#/components/ui/fields";
+import { Chip, Empty, Label } from "#/components/ui/primitives";
 import { useStore } from "#/lib/store";
-import type { AssetSymbol, ChainId, SwapMode } from "#/lib/types";
-import { ASSETS, quoteFor } from "#/mock/assets";
+import type { Agent } from "#/lib/types";
 
 export const Route = createFileRoute("/")({
-	component: SwapPage,
+	component: MarketplacePage,
 });
 
-/** The first chain that actually holds the asset, used when a flip would
- *  otherwise leave the pay side pointing at a chain with no balance. */
-function chainForSymbol(symbol: AssetSymbol, preferred: ChainId): ChainId {
-	if (ASSETS.some((a) => a.symbol === symbol && a.chain === preferred)) {
-		return preferred;
-	}
-	return ASSETS.find((a) => a.symbol === symbol)?.chain ?? preferred;
+type Sort = "sharePrice" | "tvl" | "subscribers" | "newest";
+
+const SORTS: { id: Sort; label: string }[] = [
+	{ id: "sharePrice", label: "share price" },
+	{ id: "tvl", label: "tvl" },
+	{ id: "subscribers", label: "subscribers" },
+	{ id: "newest", label: "newest" },
+];
+
+function subscriberCount(
+	agent: Agent,
+	positionsByAgent: Map<string, number>,
+): number {
+	return positionsByAgent.get(agent.id) ?? 0;
 }
 
-function firstSymbolOn(chain: ChainId, avoid: AssetSymbol): AssetSymbol {
-	const found = ASSETS.find((a) => a.chain === chain && a.symbol !== avoid);
-	return found?.symbol ?? "USDC";
-}
-
-function SwapPage() {
-	const store = useStore();
-
-	const [mode, setMode] = useState<SwapMode>("market");
-	const [sourceChain, setSourceChain] = useState<ChainId>("base");
-	const [fromSymbol, setFromSymbol] = useState<AssetSymbol>("USDC");
-	const [toSymbol, setToSymbol] = useState<AssetSymbol>("MON");
-	const [amount, setAmount] = useState("1000");
-	const [limitPrice, setLimitPrice] = useState("");
-	const [expiry, setExpiry] = useState("7d");
-	const [receipt, setReceipt] = useState<string | null>(null);
-
-	const amountNumber = Number(amount) || 0;
-	const quote = quoteFor(amountNumber, fromSymbol, toSymbol, store.tick);
-
-	// The stamped confirmation is a beat, not a state. It clears itself.
-	useEffect(() => {
-		if (!receipt) return;
-		const id = window.setTimeout(() => setReceipt(null), 3200);
-		return () => window.clearTimeout(id);
-	}, [receipt]);
-
-	function handleSourceChainChange(chain: ChainId) {
-		setSourceChain(chain);
-		if (!ASSETS.some((a) => a.chain === chain && a.symbol === fromSymbol)) {
-			setFromSymbol(ASSETS.find((a) => a.chain === chain)?.symbol ?? "USDC");
-		}
-	}
-
-	function handleFlip() {
-		const nextFrom = toSymbol;
-		const nextTo = fromSymbol;
-		const nextChain = chainForSymbol(nextFrom, sourceChain);
-		setFromSymbol(nextFrom);
-		setSourceChain(nextChain);
-		// Everything settles on Monad, so a receive side that is not listed there
-		// has to give way rather than silently quote a pair that cannot exist.
-		setToSymbol(
-			ASSETS.some((a) => a.chain === "monad" && a.symbol === nextTo)
-				? nextTo
-				: firstSymbolOn("monad", nextFrom),
-		);
-	}
-
-	function handleSubmit() {
-		if (mode === "limit") {
-			const price = Number(limitPrice) || 0;
-			if (price <= 0) return;
-			const buying = fromSymbol === "USDC";
-			store.placeLimitOrder({
-				pair: buying
-					? `${toSymbol}/${fromSymbol}`
-					: `${fromSymbol}/${toSymbol}`,
-				side: buying ? "buy" : "sell",
-				price,
-				total: buying ? amountNumber / price : amountNumber,
-			});
-			setReceipt(
-				`Order resting on Kuru · ${buying ? "buy" : "sell"} @ ${price} · expires ${expiry}`,
+function compare(
+	sort: Sort,
+	a: Agent,
+	b: Agent,
+	positionsByAgent: Map<string, number>,
+): number {
+	switch (sort) {
+		case "sharePrice":
+			return b.vault.sharePrice - a.vault.sharePrice;
+		case "tvl":
+			return b.vault.totalAssets - a.vault.totalAssets;
+		case "subscribers":
+			return (
+				subscriberCount(b, positionsByAgent) -
+				subscriberCount(a, positionsByAgent)
 			);
-			return;
-		}
-
-		store.submitSwap({
-			fromSymbol,
-			toSymbol,
-			sourceChain,
-			amount: amountNumber,
-			receive: quote.receive,
-		});
-		setReceipt("Intent signed. Watch it clear the gate →");
+		case "newest":
+			return b.registeredAt - a.registeredAt;
 	}
+}
+
+function MarketplacePage() {
+	const { agents, positions } = useStore();
+	const [query, setQuery] = useState("");
+	const [sort, setSort] = useState<Sort>("tvl");
+
+	const positionsByAgent = useMemo(() => {
+		const map = new Map<string, number>();
+		for (const p of positions) {
+			if (p.shares <= 0) continue;
+			map.set(p.agentId, (map.get(p.agentId) ?? 0) + 1);
+		}
+		return map;
+	}, [positions]);
+
+	const visible = useMemo(() => {
+		const needle = query.trim().toLowerCase();
+		return agents
+			.filter((agent) => agent.isPublic)
+			.filter(
+				(agent) =>
+					needle === "" ||
+					agent.name.toLowerCase().includes(needle) ||
+					agent.description.toLowerCase().includes(needle) ||
+					agent.agentAddress.toLowerCase().includes(needle),
+			)
+			.slice()
+			.sort((a, b) => compare(sort, a, b, positionsByAgent));
+	}, [agents, query, sort, positionsByAgent]);
 
 	return (
-		<div className="space-y-3">
-			<div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-				<div className="w-full lg:max-w-[470px]">
-					<SwapCard
-						mode={mode}
-						onModeChange={setMode}
-						sourceChain={sourceChain}
-						onSourceChainChange={handleSourceChainChange}
-						fromSymbol={fromSymbol}
-						toSymbol={toSymbol}
-						onFromSymbolChange={setFromSymbol}
-						onToSymbolChange={setToSymbol}
-						onFlip={handleFlip}
-						amount={amount}
-						onAmountChange={setAmount}
-						limitPrice={limitPrice}
-						onLimitPriceChange={setLimitPrice}
-						expiry={expiry}
-						onExpiryChange={setExpiry}
-						quote={quote}
-						connected={store.connected}
-						onConnect={store.connect}
-						onSubmit={handleSubmit}
-					/>
-
-					{receipt ? (
-						<p
-							className="mt-2 border-2 border-accent px-2 py-1 text-[17px] text-accent"
-							style={{ animation: "stamp 220ms steps(3, end) both" }}
+		<div>
+			<div className="mb-3 flex flex-wrap items-center gap-2">
+				<TextInput
+					value={query}
+					onChange={(e) => setQuery(e.target.value)}
+					placeholder="Search vaults"
+					aria-label="Search vaults"
+					className="w-full sm:w-[260px]"
+				/>
+				<div className="flex flex-wrap items-center gap-2">
+					<Label>sort</Label>
+					{SORTS.map((option) => (
+						<Chip
+							key={option.id}
+							active={sort === option.id}
+							onClick={() => setSort(option.id)}
 						>
-							{receipt}
-						</p>
-					) : null}
+							{option.label}
+						</Chip>
+					))}
 				</div>
-
-				<div className="w-full lg:flex-1">
-					<GateSidecar
-						mode={mode}
-						quote={quote}
-						amount={amountNumber}
-						fromSymbol={fromSymbol}
-						toSymbol={toSymbol}
-						sourceChain={sourceChain}
-					/>
-				</div>
+				<span className="ml-auto text-[17px] text-dim">
+					{visible.length} listed
+				</span>
 			</div>
+
+			{visible.length === 0 ? (
+				<Empty
+					title="No vault matches that"
+					hint="Every public agent is listed here. Try a name, a description, or an address."
+				/>
+			) : (
+				<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+					{visible.map((agent) => (
+						<Link
+							key={agent.id}
+							to="/agents/$agentId"
+							params={{ agentId: agent.id }}
+						>
+							<AgentSealBadge
+								agent={agent}
+								subscriberCount={subscriberCount(agent, positionsByAgent)}
+							/>
+						</Link>
+					))}
+				</div>
+			)}
 		</div>
 	);
 }
