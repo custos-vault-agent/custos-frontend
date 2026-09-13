@@ -133,7 +133,8 @@ export const SEED_AGENTS: Agent[] = [
 	{
 		id: "mon-dca",
 		name: "mon-dca",
-		description: "Buys a fixed size of MON every day at 09:00 UTC. Never sells.",
+		description:
+			"Buys a fixed size of MON every day at 09:00 UTC. Never sells.",
 		agentAddress: "0x2Dd0a91B7fE34c06d85Ab219c7E403bF6a1D9E48",
 		creatorAddress: OWNER_ADDRESS,
 		isPublic: true,

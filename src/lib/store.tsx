@@ -9,7 +9,12 @@ import {
 	useState,
 } from "react";
 import { SEED_ACTIVITY } from "#/mock/activity";
-import { agentActor, OWNER_ACTOR, OWNER_ADDRESS, SEED_AGENTS } from "#/mock/agents";
+import {
+	agentActor,
+	OWNER_ACTOR,
+	OWNER_ADDRESS,
+	SEED_AGENTS,
+} from "#/mock/agents";
 import { SEED_POSITIONS } from "#/mock/positions";
 import {
 	advanceSteps,
@@ -49,7 +54,12 @@ type Action =
 	| { type: "connect" }
 	| { type: "disconnect" }
 	| { type: "register"; agent: Agent }
-	| { type: "allowance"; id: string; allowance: number; resetPeriod: ResetPeriod }
+	| {
+			type: "allowance";
+			id: string;
+			allowance: number;
+			resetPeriod: ResetPeriod;
+	  }
 	| { type: "status"; id: string; status: Agent["status"] }
 	| { type: "set-public"; id: string; isPublic: boolean }
 	| { type: "redeem"; agentId: string; shares: number }
@@ -164,7 +174,11 @@ function reducer(state: State, action: Action): State {
 				...state,
 				agents: state.agents.map((a) =>
 					a.id === action.id
-						? { ...a, allowance: action.allowance, resetPeriod: action.resetPeriod }
+						? {
+								...a,
+								allowance: action.allowance,
+								resetPeriod: action.resetPeriod,
+							}
 						: a,
 				),
 			};
@@ -282,7 +296,11 @@ type StoreValue = {
 	connect: () => void;
 	disconnect: () => void;
 	registerAgent: (input: RegisterInput) => void;
-	setAllowance: (id: string, allowance: number, resetPeriod: ResetPeriod) => void;
+	setAllowance: (
+		id: string,
+		allowance: number,
+		resetPeriod: ResetPeriod,
+	) => void;
 	pauseAgent: (id: string) => void;
 	resumeAgent: (id: string) => void;
 	revokeAgent: (id: string) => void;
@@ -330,7 +348,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 	);
 
 	const startFlight = useCallback(
-		(entry: ActivityEntry, steps: RouteStep[], subscribeCredit?: SubscribeCredit) => {
+		(
+			entry: ActivityEntry,
+			steps: RouteStep[],
+			subscribeCredit?: SubscribeCredit,
+		) => {
 			dispatch({
 				type: "start-flight",
 				flight: {
@@ -491,7 +513,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 			const agent = state.agents.find((a) => a.id === input.agentId);
 			if (!agent) return;
 			const { assets } = applyRedeem(state, input.agentId, input.shares);
-			dispatch({ type: "redeem", agentId: input.agentId, shares: input.shares });
+			dispatch({
+				type: "redeem",
+				agentId: input.agentId,
+				shares: input.shares,
+			});
 			dispatch({
 				type: "record",
 				entry: {
