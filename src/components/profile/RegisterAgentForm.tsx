@@ -9,7 +9,7 @@ import {
 import { Button, Card, CardHeader, Label } from "#/components/ui/primitives";
 import { Sigil } from "#/components/ui/Sigil";
 import { shortAddress } from "#/lib/format";
-import { OWNER_ADDRESS, useStore } from "#/lib/store";
+import { useStore } from "#/lib/store";
 import type { ResetPeriod } from "#/lib/types";
 import { MIN_SEED } from "#/mock/agents";
 
@@ -17,7 +17,7 @@ const PERIODS: ResetPeriod[] = ["daily", "weekly", "monthly", "never"];
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
 export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
-	const { registerAgent } = useStore();
+	const { registerAgent, connectedAddress } = useStore();
 
 	const [name, setName] = useState("");
 	const [description, setDescription] = useState("");
@@ -74,7 +74,7 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 				<div>
 					<Label>Creator wallet (locked)</Label>
 					<div className="mt-1">
-						<LockedValue>{shortAddress(OWNER_ADDRESS, 10, 6)}</LockedValue>
+						<LockedValue>{connectedAddress ? shortAddress(connectedAddress, 10, 6) : ""}</LockedValue>
 					</div>
 				</div>
 

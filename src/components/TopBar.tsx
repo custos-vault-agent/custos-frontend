@@ -4,7 +4,6 @@ import { shortAddress } from "#/lib/format";
 import { useStore } from "#/lib/store";
 import type { ThemeChoice } from "#/lib/theme";
 import { applyTheme, nextTheme, readTheme, themeLabel } from "#/lib/theme";
-import { OWNER_ADDRESS } from "#/mock/agents";
 import { Logo } from "./Logo";
 import { Button, cx } from "./ui/primitives";
 import { Sigil } from "./ui/Sigil";
@@ -39,7 +38,7 @@ function ThemeToggle() {
 }
 
 export function TopBar() {
-	const { connected, connect, disconnect, inFlight } = useStore();
+	const { connected, connect, disconnect, inFlight, connectedAddress } = useStore();
 
 	return (
 		<header className="sticky top-0 z-40 border-b-2 border-edge bg-bg/95 backdrop-blur-[1px]">
@@ -81,7 +80,7 @@ export function TopBar() {
 
 					<ThemeToggle />
 
-					{connected ? (
+					{connected && connectedAddress ? (
 						<button
 							type="button"
 							onClick={disconnect}
@@ -91,12 +90,12 @@ export function TopBar() {
 								"hover:border-sell hover:text-sell",
 							)}
 						>
-							<Sigil address={OWNER_ADDRESS} size="xs" tone="owner" />
+							<Sigil address={connectedAddress} size="xs" tone="owner" />
 							<span className="hidden text-[17px] sm:inline">
-								{shortAddress(OWNER_ADDRESS, 6, 4)}
+								{shortAddress(connectedAddress, 6, 4)}
 							</span>
 							<span className="text-[17px] sm:hidden">
-								{OWNER_ADDRESS.slice(-4)}
+								{connectedAddress.slice(-4)}
 							</span>
 						</button>
 					) : (

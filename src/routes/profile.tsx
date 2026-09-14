@@ -7,7 +7,7 @@ import { Button, Card, Empty, Label } from "#/components/ui/primitives";
 import { Sigil } from "#/components/ui/Sigil";
 import { RedeemPanel } from "#/components/vault/RedeemPanel";
 import { formatAmount, shortAddress } from "#/lib/format";
-import { OWNER_ADDRESS, useStore } from "#/lib/store";
+import { useStore } from "#/lib/store";
 
 export const Route = createFileRoute("/profile")({
 	component: ProfilePage,
@@ -23,6 +23,7 @@ function ProfilePage() {
 	const {
 		connected,
 		connect,
+		connectedAddress,
 		myAgents,
 		myPositions,
 		agents,
@@ -56,10 +57,10 @@ function ProfilePage() {
 		<div className="flex flex-col gap-4 lg:flex-row lg:items-start">
 			<div className="min-w-0 space-y-6 lg:flex-1">
 				<div className="flex items-center gap-3">
-					<Sigil address={OWNER_ADDRESS} size="md" tone="owner" />
+					<Sigil address={connectedAddress ?? "0x0"} size="md" tone="owner" />
 					<div>
 						<div className="text-[21px]">
-							{shortAddress(OWNER_ADDRESS, 10, 6)}
+							{connectedAddress ? shortAddress(connectedAddress, 10, 6) : ""}
 						</div>
 						<Label>Connected wallet</Label>
 					</div>
