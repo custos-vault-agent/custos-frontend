@@ -15,15 +15,20 @@
     "check": "biome check"
   },
   "dependencies": {
+    "@privy-io/react-auth": "^3.42.0",
+    "@privy-io/wagmi": "^4.0.17",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-devtools": "latest",
+    "@tanstack/react-query": "^5.102.8",
     "@tanstack/react-router": "latest",
     "@tanstack/react-router-devtools": "latest",
     "@tanstack/react-start": "latest",
     "nitro": "3.0.260610-beta",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "tailwindcss": "^4.1.18"
+    "tailwindcss": "^4.1.18",
+    "viem": "^2.56.5",
+    "wagmi": "^3.7.7"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.5",
