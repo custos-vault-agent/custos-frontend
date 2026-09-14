@@ -48,7 +48,7 @@ function compare(
 }
 
 function MarketplacePage() {
-	const { agents, positions } = useStore();
+	const { agents, agentsLoading, positions } = useStore();
 	const [query, setQuery] = useState("");
 	const [sort, setSort] = useState<Sort>("tvl");
 
@@ -103,7 +103,12 @@ function MarketplacePage() {
 				</span>
 			</div>
 
-			{visible.length === 0 ? (
+			{agentsLoading ? (
+				<Empty
+					title="Loading agents…"
+					hint="Fetching the marketplace from chain."
+				/>
+			) : visible.length === 0 ? (
 				<Empty
 					title="No vault matches that"
 					hint="Every public agent is listed here. Try a name, a description, or an address."

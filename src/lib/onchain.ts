@@ -195,7 +195,7 @@ export async function fetchAgents(publicClient: PublicClient): Promise<Agent[]> 
 				maxUtilizationBps: v.maxUtilizationBps,
 				yieldEnabled: v.yieldSource !== zeroAddress,
 				yieldApyBps: v.yieldSource === zeroAddress ? 0 : Number(apyByYieldSource.get(v.yieldSource) ?? 0n),
-				seedAssets: fromTokenUnits(v.seedShares),
+				seedAssets: fromTokenUnits(v.seedShares) * sharePrice,
 				circuitBreakerTripped: v.status === 2 /* Paused */,
 			},
 			nansen: nansenById.get(ids[i].toLowerCase()) ?? null,

@@ -49,11 +49,21 @@ type Panel = "none" | "subscribe" | "redeem";
 
 function VaultDetailPage() {
 	const { agentId } = Route.useParams();
-	const { agents, myPositions, history } = useStore();
+	const { agents, agentsLoading, myPositions, history } = useStore();
 	const [panel, setPanel] = useState<Panel>("none");
 
 	const agent = agents.find((a) => a.id === agentId);
 	if (!agent) {
+		if (agentsLoading) {
+			return (
+				<Card>
+					<Empty
+						title="Loading vault…"
+						hint="Fetching the latest on-chain state."
+					/>
+				</Card>
+			);
+		}
 		return (
 			<Card>
 				<Empty title="Vault not found" hint="It may have been revoked." />

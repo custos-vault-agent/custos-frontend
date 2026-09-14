@@ -42,6 +42,7 @@ type StoreValue = {
 	connected: boolean;
 	connectedAddress: string | null;
 	agents: Agent[];
+	agentsLoading: boolean;
 	myAgents: Agent[];
 	positions: Position[];
 	myPositions: Position[];
@@ -76,7 +77,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 	const { address } = useAccount();
 	const publicClient = usePublicClient();
 
-	const { data: agents = [] } = useQuery({
+	const { data: agents = [], isLoading: agentsLoading } = useQuery({
 		queryKey: ["agents"],
 		queryFn: () => {
 			if (!publicClient) throw new Error("no public client");
@@ -112,6 +113,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		connected: ready && authenticated,
 		connectedAddress,
 		agents,
+		agentsLoading,
 		myAgents,
 		positions,
 		myPositions,

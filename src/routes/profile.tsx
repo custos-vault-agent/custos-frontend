@@ -37,7 +37,7 @@ function ProfilePage() {
 			? (myAgents.find((a) => a.id === panel.id) ?? null)
 			: null;
 
-	if (!connected) {
+	if (!connected || !connectedAddress) {
 		return (
 			<Card>
 				<Empty
