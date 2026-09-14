@@ -24,6 +24,9 @@ export const CONTRACTS = {
 
 export const USDC_DECIMALS = 6;
 
+/** Minimum USDC seed for agent registration (set in custos-contract/script/Deploy.s.sol:63). */
+export const MIN_SEED = 500;
+
 /** Raw token-unit bigint (6-decimal USDC or USDC-denominated shares) -> plain number. */
 export function fromTokenUnits(raw: bigint): number {
 	return Number(raw) / 10 ** USDC_DECIMALS;

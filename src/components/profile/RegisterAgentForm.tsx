@@ -11,7 +11,7 @@ import { Sigil } from "#/components/ui/Sigil";
 import { shortAddress } from "#/lib/format";
 import { useStore } from "#/lib/store";
 import type { ResetPeriod } from "#/lib/types";
-import { MIN_SEED } from "#/mock/agents";
+import { MIN_SEED } from "#/lib/chain";
 
 const PERIODS: ResetPeriod[] = ["daily", "weekly", "monthly", "never"];
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
