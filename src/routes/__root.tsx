@@ -8,6 +8,7 @@ import {
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 
 import { TopBar } from "#/components/TopBar";
+import { Web3Provider } from "#/lib/web3Provider";
 import { StoreProvider } from "#/lib/store";
 import { themeInitScript } from "#/lib/theme";
 import appCss from "../styles.css?url";
@@ -44,14 +45,16 @@ export const Route = createRootRoute({
 
 function RootLayout() {
 	return (
-		<StoreProvider>
-			<TopBar />
-			<main className="mx-auto max-w-[1280px] px-4 py-6">
-				<Outlet />
-			</main>
-			{/* Sits above everything, catches no clicks. */}
-			<div aria-hidden className="scanlines-overlay" />
-		</StoreProvider>
+		<Web3Provider>
+			<StoreProvider>
+				<TopBar />
+				<main className="mx-auto max-w-[1280px] px-4 py-6">
+					<Outlet />
+				</main>
+				{/* Sits above everything, catches no clicks. */}
+				<div aria-hidden className="scanlines-overlay" />
+			</StoreProvider>
+		</Web3Provider>
 	);
 }
 
