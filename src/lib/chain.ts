@@ -17,7 +17,9 @@ export const monadTestnet = defineChain({
 // is a persistent chain, not local Anvil where addresses reset every run).
 export const CONTRACTS = {
 	custosCore: "0xCfBbd07b107A6cb7e685e555E4C9ef956d11a0bB" as const,
-	nansenModule: "0xF7E5618cA647B23916d366B9d1E24727D95Aa24A" as const,
+	// NanSigil (repo nansigil-contract). Not deployed on testnet yet: zero disables the
+	// badge lookup entirely until `make deploy` in nansigil-contract prints an address.
+	nansigil: "0x0000000000000000000000000000000000000000" as const,
 	usdc: "0xdA4Ce9769cb5A1EF725d7847f0B8b2b7a1908645" as const,
 	mon: "0x1a4E9Ecf9F68F413E59F414b31d5F48fDb99d852" as const,
 	// MockAuroraReceiver — stands in for Aurora Intents Connect, which only

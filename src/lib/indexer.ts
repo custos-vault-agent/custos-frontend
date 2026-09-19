@@ -19,6 +19,11 @@ export type IndexedAgent = {
 	registeredAt: number;
 	swapCount: number;
 	volume: bigint;
+	// Creator's latest NanSigil attestation plaintext, null until attested.
+	nansenLabel: string | null;
+	nansenPnl: bigint | null;
+	nansenWinRate: number | null;
+	nansenAttestedAt: number | null;
 };
 
 export type IndexedPricePoint = {
@@ -34,6 +39,7 @@ const QUERY = `
 query Agents($chainId: Int!) {
   Agent(where: { chainId: { _eq: $chainId } }, order_by: { registeredAt: asc }) {
     id creator wallet vault name description feeRate isPublic registeredAt swapCount volume
+    nansenLabel nansenPnl nansenWinRate nansenAttestedAt
   }
   SharePricePoint(where: { chainId: { _eq: $chainId } }, order_by: { timestamp: asc }) {
     agent timestamp sharePrice totalAssets notional source
@@ -68,6 +74,11 @@ export async function fetchIndexedAgents(
 			registeredAt: Number(a.registeredAt),
 			swapCount: Number(a.swapCount),
 			volume: big(a.volume),
+			nansenLabel: (a.nansenLabel as string | null) ?? null,
+			nansenPnl: a.nansenPnl == null ? null : big(a.nansenPnl),
+			nansenWinRate: a.nansenWinRate == null ? null : Number(a.nansenWinRate),
+			nansenAttestedAt:
+				a.nansenAttestedAt == null ? null : Number(a.nansenAttestedAt),
 		}),
 	);
 

@@ -1,5 +1,5 @@
-// Generated from ../../../../custos-contract/abi/NansenModule.json — copy fresh here if the contract's ABI changes.
-export const NansenModuleAbi = [
+// Generated from ../../../../nansigil-contract/abi/NanSigil.json — copy fresh here if the contract's ABI changes.
+export const NanSigilAbi = [
 	{ type: "constructor", inputs: [], stateMutability: "nonpayable" },
 	{
 		type: "function",
@@ -17,21 +17,23 @@ export const NansenModuleAbi = [
 	},
 	{
 		type: "function",
-		name: "custosCore",
-		inputs: [],
-		outputs: [{ name: "", type: "address", internalType: "address" }],
-		stateMutability: "view",
-	},
-	{
-		type: "function",
 		name: "initialize",
 		inputs: [
 			{ name: "upgradeAuthority_", type: "address", internalType: "address" },
 			{ name: "attestor_", type: "address", internalType: "address" },
-			{ name: "custosCore_", type: "address", internalType: "address" },
 		],
 		outputs: [],
 		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "latest",
+		inputs: [{ name: "wallet", type: "address", internalType: "address" }],
+		outputs: [
+			{ name: "attestHash", type: "bytes32", internalType: "bytes32" },
+			{ name: "timestamp", type: "uint64", internalType: "uint64" },
+		],
+		stateMutability: "view",
 	},
 	{
 		type: "function",
@@ -49,10 +51,13 @@ export const NansenModuleAbi = [
 	},
 	{
 		type: "function",
-		name: "submitAttestation",
+		name: "submit",
 		inputs: [
-			{ name: "agentId", type: "bytes32", internalType: "bytes32" },
-			{ name: "attestHash", type: "bytes32", internalType: "bytes32" },
+			{ name: "wallet", type: "address", internalType: "address" },
+			{ name: "label", type: "string", internalType: "string" },
+			{ name: "pnl", type: "int256", internalType: "int256" },
+			{ name: "winRate", type: "uint16", internalType: "uint16" },
+			{ name: "timestamp", type: "uint64", internalType: "uint64" },
 			{ name: "signature", type: "bytes", internalType: "bytes" },
 		],
 		outputs: [],
@@ -86,9 +91,8 @@ export const NansenModuleAbi = [
 	},
 	{
 		type: "function",
-		name: "verifyAttestation",
+		name: "verify",
 		inputs: [
-			{ name: "agentId", type: "bytes32", internalType: "bytes32" },
 			{ name: "wallet", type: "address", internalType: "address" },
 			{ name: "label", type: "string", internalType: "string" },
 			{ name: "pnl", type: "int256", internalType: "int256" },
@@ -102,19 +106,59 @@ export const NansenModuleAbi = [
 		stateMutability: "view",
 	},
 	{
+		type: "function",
+		name: "version",
+		inputs: [],
+		outputs: [{ name: "", type: "string", internalType: "string" }],
+		stateMutability: "pure",
+	},
+	{
+		type: "event",
+		name: "AttestationSubmitted",
+		inputs: [
+			{
+				name: "wallet",
+				type: "address",
+				indexed: true,
+				internalType: "address",
+			},
+			{ name: "label", type: "string", indexed: false, internalType: "string" },
+			{ name: "pnl", type: "int256", indexed: false, internalType: "int256" },
+			{
+				name: "winRate",
+				type: "uint16",
+				indexed: false,
+				internalType: "uint16",
+			},
+			{
+				name: "timestamp",
+				type: "uint64",
+				indexed: false,
+				internalType: "uint64",
+			},
+			{
+				name: "attestHash",
+				type: "bytes32",
+				indexed: false,
+				internalType: "bytes32",
+			},
+		],
+		anonymous: false,
+	},
+	{
 		type: "event",
 		name: "AttestorChanged",
 		inputs: [
 			{
 				name: "oldAttestor",
 				type: "address",
-				indexed: false,
+				indexed: true,
 				internalType: "address",
 			},
 			{
 				name: "newAttestor",
 				type: "address",
-				indexed: false,
+				indexed: true,
 				internalType: "address",
 			},
 		],
@@ -126,31 +170,6 @@ export const NansenModuleAbi = [
 		inputs: [
 			{
 				name: "version",
-				type: "uint64",
-				indexed: false,
-				internalType: "uint64",
-			},
-		],
-		anonymous: false,
-	},
-	{
-		type: "event",
-		name: "NansenAttestationSubmitted",
-		inputs: [
-			{
-				name: "agentId",
-				type: "bytes32",
-				indexed: true,
-				internalType: "bytes32",
-			},
-			{
-				name: "attestHash",
-				type: "bytes32",
-				indexed: false,
-				internalType: "bytes32",
-			},
-			{
-				name: "timestamp",
 				type: "uint64",
 				indexed: false,
 				internalType: "uint64",
@@ -196,6 +215,7 @@ export const NansenModuleAbi = [
 		inputs: [{ name: "target", type: "address", internalType: "address" }],
 	},
 	{ type: "error", name: "AttestationInvalid", inputs: [] },
+	{ type: "error", name: "AttestationStale", inputs: [] },
 	{ type: "error", name: "ECDSAInvalidSignature", inputs: [] },
 	{
 		type: "error",
@@ -217,7 +237,6 @@ export const NansenModuleAbi = [
 	{ type: "error", name: "ERC1967NonPayable", inputs: [] },
 	{ type: "error", name: "FailedCall", inputs: [] },
 	{ type: "error", name: "InvalidInitialization", inputs: [] },
-	{ type: "error", name: "NotAttestor", inputs: [] },
 	{ type: "error", name: "NotInitializing", inputs: [] },
 	{ type: "error", name: "NotUpgradeAuthority", inputs: [] },
 	{ type: "error", name: "UUPSUnauthorizedCallContext", inputs: [] },
@@ -226,6 +245,5 @@ export const NansenModuleAbi = [
 		name: "UUPSUnsupportedProxiableUUID",
 		inputs: [{ name: "slot", type: "bytes32", internalType: "bytes32" }],
 	},
-	{ type: "error", name: "UnknownAgent", inputs: [] },
 	{ type: "error", name: "ZeroAddress", inputs: [] },
 ] as const;

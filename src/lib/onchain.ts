@@ -2,14 +2,13 @@ import type { PublicClient } from "viem";
 import { zeroAddress } from "viem";
 import { AgentVaultAbi } from "./abi/AgentVault";
 import { CustosCoreAbi } from "./abi/CustosCore";
-import { NansenModuleAbi } from "./abi/NansenModule";
+import { NanSigilAbi } from "./abi/NanSigil";
 import {
 	CONTRACTS,
 	fromSharePriceUnits,
 	fromTokenUnits,
 	secondsToResetPeriod,
 } from "./chain";
-import { DEMO_NANSEN } from "./demoNansen";
 import { fetchIndexedAgents } from "./indexer";
 import type { Agent, AgentStatus, NansenBadge } from "./types";
 
@@ -187,52 +186,53 @@ export async function fetchAgents(
 		yieldSourceAddrs.map((addr, i) => [addr, apyResults[i]]),
 	);
 
-	// Nansen badge: only ever "verified" if the on-chain hash actually checks
-	// out against our known plaintext — never trusted from the plaintext alone.
-	const nansenEntries = records
-		.map((_, i) => ({ id: ids[i], entry: DEMO_NANSEN[ids[i].toLowerCase()] }))
-		.filter(
-			(
-				x,
-			): x is { id: `0x${string}`; entry: NonNullable<(typeof x)["entry"]> } =>
-				!!x.entry,
-		);
-	const nansenResults =
-		nansenEntries.length === 0
+	// Nansen badge: the plaintext comes from the indexer (NanSigil's event carries
+	// it), but "verified" is only ever what NanSigil.verify says on-chain for the
+	// creator wallet — never trusted from the plaintext alone. Keyed by creator:
+	// one attestation covers every agent that wallet made.
+	const attested = new Map(
+		(indexed?.agents ?? [])
+			.filter((a) => a.nansenAttestedAt != null && a.nansenLabel != null)
+			.map((a) => [a.creator.toLowerCase(), a]),
+	);
+	const attestedList = [...attested.values()];
+	const verifyResults =
+		attestedList.length === 0 || CONTRACTS.nansigil === zeroAddress
 			? []
 			: ((await publicClient.multicall({
-					contracts: nansenEntries.map(({ id, entry }) => ({
-						address: CONTRACTS.nansenModule,
-						abi: NansenModuleAbi,
-						functionName: "verifyAttestation",
-						args: [
-							id,
-							entry.wallet,
-							entry.label,
-							BigInt(entry.pnl),
-							entry.winRate,
-							BigInt(entry.timestamp),
-						],
-					})),
+					contracts: attestedList.map((a) => {
+						return {
+							address: CONTRACTS.nansigil,
+							abi: NanSigilAbi,
+							functionName: "verify",
+							args: [
+								a.creator,
+								a.nansenLabel ?? "",
+								a.nansenPnl ?? 0n,
+								a.nansenWinRate ?? 0,
+								BigInt(a.nansenAttestedAt ?? 0),
+							],
+						};
+					}),
 					allowFailure: false,
 				})) as unknown as readonly [boolean, `0x${string}`][]);
-	const nansenById = new Map(
-		nansenEntries.map(({ id, entry }, i) => {
-			const [valid] = nansenResults[i];
+	const nansenByCreator = new Map(
+		attestedList.map((a, i) => {
+			const attestedAtMs = (a.nansenAttestedAt ?? 0) * 1000;
 			const badge: NansenBadge = {
-				verified: valid,
+				verified: verifyResults[i]?.[0] ?? false,
 				label:
-					entry.label === "Smart Trader" ||
-					entry.label === "Fund" ||
-					entry.label === "Whale"
-						? entry.label
+					a.nansenLabel === "Smart Trader" ||
+					a.nansenLabel === "Fund" ||
+					a.nansenLabel === "Whale"
+						? a.nansenLabel
 						: null,
-				pnlUsd: entry.pnl,
-				winRatePct: entry.winRate,
-				attestedAt: entry.timestamp * 1000,
-				stale: Date.now() - entry.timestamp * 1000 > 30 * 24 * 60 * 60 * 1000,
+				pnlUsd: Number(a.nansenPnl ?? 0n),
+				winRatePct: a.nansenWinRate ?? 0,
+				attestedAt: attestedAtMs,
+				stale: Date.now() - attestedAtMs > 30 * 24 * 60 * 60 * 1000,
 			};
-			return [id.toLowerCase(), badge];
+			return [a.creator.toLowerCase(), badge];
 		}),
 	);
 
@@ -298,7 +298,7 @@ export async function fetchAgents(
 				// leaves this false. Cleared again when the creator resumes.
 				circuitBreakerTripped: v.breakerTripped,
 			},
-			nansen: nansenById.get(ids[i].toLowerCase()) ?? null,
+			nansen: nansenByCreator.get(r.creator.toLowerCase()) ?? null,
 			// pnl30d approximates the vault's USDC change over the window from the
 			// share price move applied to today's assets.
 			stats: {
