@@ -3,8 +3,14 @@ import { zeroAddress } from "viem";
 import { AgentVaultAbi } from "./abi/AgentVault";
 import { CustosCoreAbi } from "./abi/CustosCore";
 import { NansenModuleAbi } from "./abi/NansenModule";
-import { CONTRACTS, fromSharePriceUnits, fromTokenUnits, secondsToResetPeriod } from "./chain";
+import {
+	CONTRACTS,
+	fromSharePriceUnits,
+	fromTokenUnits,
+	secondsToResetPeriod,
+} from "./chain";
 import { DEMO_NANSEN } from "./demoNansen";
+import { fetchIndexedAgents } from "./indexer";
 import type { Agent, AgentStatus, NansenBadge } from "./types";
 
 const DEAD_ADDRESS = "0x0000000000000000000000000000000000000001" as const;
@@ -25,21 +31,28 @@ const YIELD_SOURCE_ABI = [
 	},
 ] as const;
 
-/** Fetches every registered agent and its vault's current on-chain state in
- *  four sequential multicall rounds — id count, ids, per-id records, then
- *  everything each record's vault/yieldSource address needs. No data comes
- *  from the indexer here: this is the "must never look stale after your own
- *  action" state, read live every time. */
-export async function fetchAgents(publicClient: PublicClient): Promise<Agent[]> {
+type RegistryRecord = {
+	name: `0x${string}`;
+	wallet: `0x${string}`;
+	creator: `0x${string}`;
+	vault: `0x${string}`;
+	feeRate: number;
+	isPublic: boolean;
+	registeredAt: bigint;
+};
+
+/** Agent list straight from the registry: three multicall rounds (count, ids,
+ *  records). Used when the indexer is unreachable. */
+async function listFromChain(publicClient: PublicClient) {
 	const count = await publicClient.readContract({
 		address: CONTRACTS.custosCore,
 		abi: CustosCoreAbi,
 		functionName: "agentCount",
 	});
+	if (count === 0n)
+		return { ids: [] as `0x${string}`[], records: [] as RegistryRecord[] };
 
-	if (count === 0n) return [];
-
-	const idResults = await publicClient.multicall({
+	const ids = (await publicClient.multicall({
 		contracts: Array.from({ length: Number(count) }, (_, i) => ({
 			address: CONTRACTS.custosCore,
 			abi: CustosCoreAbi,
@@ -47,8 +60,7 @@ export async function fetchAgents(publicClient: PublicClient): Promise<Agent[]> 
 			args: [BigInt(i)],
 		})),
 		allowFailure: false,
-	});
-	const ids = idResults as readonly `0x${string}`[];
+	})) as readonly `0x${string}`[];
 
 	const records = (await publicClient.multicall({
 		contracts: ids.map((id) => ({
@@ -58,37 +70,85 @@ export async function fetchAgents(publicClient: PublicClient): Promise<Agent[]> 
 			args: [id],
 		})),
 		allowFailure: false,
-	})) as unknown as readonly {
-		name: `0x${string}`;
-		wallet: `0x${string}`;
-		status: number;
-		creator: `0x${string}`;
-		vault: `0x${string}`;
-		descriptionHash: `0x${string}`;
-		feeRate: number;
-		isPublic: boolean;
-		registeredAt: bigint;
-	}[];
+	})) as unknown as readonly RegistryRecord[];
+	return { ids: [...ids], records: [...records] };
+}
 
-	const vaultCalls = records.flatMap((r) => [
-		{ address: r.vault, abi: AgentVaultAbi, functionName: "totalAssets" },
-		{ address: r.vault, abi: AgentVaultAbi, functionName: "totalSupply" },
-		{ address: r.vault, abi: AgentVaultAbi, functionName: "highWaterMark" },
-		{ address: r.vault, abi: AgentVaultAbi, functionName: "status" },
-		{ address: r.vault, abi: AgentVaultAbi, functionName: "allowance" },
-		{ address: r.vault, abi: AgentVaultAbi, functionName: "usedInPeriod" },
-		{ address: r.vault, abi: AgentVaultAbi, functionName: "periodLength" },
-		{ address: r.vault, abi: AgentVaultAbi, functionName: "maxDrawdownBps" },
-		{ address: r.vault, abi: AgentVaultAbi, functionName: "maxUtilizationBps" },
-		{ address: r.vault, abi: AgentVaultAbi, functionName: "yieldSource" },
-		{ address: r.vault, abi: AgentVaultAbi, functionName: "balanceOf", args: [DEAD_ADDRESS] },
-	] as const);
+const THIRTY_DAYS = 30 * 24 * 60 * 60;
+
+/** The agent list, description and price history come from the indexer; the
+ *  vault's current numbers (totalAssets, supply, HWM, allowance used, status)
+ *  are read live so a user's own action never looks stale. If the indexer is
+ *  unreachable the list falls back to the registry and history to a two-point
+ *  baseline. */
+export async function fetchAgents(
+	publicClient: PublicClient,
+): Promise<Agent[]> {
+	const chainId = await publicClient.getChainId();
+	const indexed = await fetchIndexedAgents(chainId).catch((err) => {
+		console.warn("indexer unavailable, listing from chain:", err);
+		return null;
+	});
+
+	const { ids, records } = indexed
+		? {
+				ids: indexed.agents.map((a) => a.id),
+				records: indexed.agents.map<RegistryRecord>((a) => ({
+					name: a.name,
+					wallet: a.wallet,
+					creator: a.creator,
+					vault: a.vault,
+					feeRate: a.feeRate,
+					isPublic: a.isPublic,
+					registeredAt: BigInt(a.registeredAt),
+				})),
+			}
+		: await listFromChain(publicClient);
+	if (ids.length === 0) return [];
+	const descriptionById = new Map(
+		indexed?.agents.map((a) => [a.id.toLowerCase(), a.description]) ?? [],
+	);
+
+	const vaultCalls = records.flatMap(
+		(r) =>
+			[
+				{ address: r.vault, abi: AgentVaultAbi, functionName: "totalAssets" },
+				{ address: r.vault, abi: AgentVaultAbi, functionName: "totalSupply" },
+				{ address: r.vault, abi: AgentVaultAbi, functionName: "highWaterMark" },
+				{ address: r.vault, abi: AgentVaultAbi, functionName: "status" },
+				{ address: r.vault, abi: AgentVaultAbi, functionName: "allowance" },
+				{ address: r.vault, abi: AgentVaultAbi, functionName: "usedInPeriod" },
+				{ address: r.vault, abi: AgentVaultAbi, functionName: "periodLength" },
+				{
+					address: r.vault,
+					abi: AgentVaultAbi,
+					functionName: "maxDrawdownBps",
+				},
+				{
+					address: r.vault,
+					abi: AgentVaultAbi,
+					functionName: "maxUtilizationBps",
+				},
+				{ address: r.vault, abi: AgentVaultAbi, functionName: "yieldSource" },
+				{
+					address: r.vault,
+					abi: AgentVaultAbi,
+					functionName: "balanceOf",
+					args: [DEAD_ADDRESS],
+				},
+				{
+					address: r.vault,
+					abi: AgentVaultAbi,
+					functionName: "breakerTripped",
+				},
+			] as const,
+	);
 	const vaultResults = (await publicClient.multicall({
 		contracts: vaultCalls,
 		allowFailure: false,
 	})) as readonly unknown[];
 
-	const FIELDS_PER_VAULT = 11;
+	const FIELDS_PER_VAULT = 12;
 	const vaultDataByIndex = records.map((_, i) => {
 		const base = i * FIELDS_PER_VAULT;
 		return {
@@ -103,6 +163,7 @@ export async function fetchAgents(publicClient: PublicClient): Promise<Agent[]> 
 			maxUtilizationBps: vaultResults[base + 8] as number,
 			yieldSource: vaultResults[base + 9] as `0x${string}`,
 			seedShares: vaultResults[base + 10] as bigint,
+			breakerTripped: vaultResults[base + 11] as boolean,
 		};
 	});
 
@@ -122,13 +183,20 @@ export async function fetchAgents(publicClient: PublicClient): Promise<Agent[]> 
 					})),
 					allowFailure: false,
 				})) as readonly bigint[]);
-	const apyByYieldSource = new Map(yieldSourceAddrs.map((addr, i) => [addr, apyResults[i]]));
+	const apyByYieldSource = new Map(
+		yieldSourceAddrs.map((addr, i) => [addr, apyResults[i]]),
+	);
 
 	// Nansen badge: only ever "verified" if the on-chain hash actually checks
 	// out against our known plaintext — never trusted from the plaintext alone.
 	const nansenEntries = records
 		.map((_, i) => ({ id: ids[i], entry: DEMO_NANSEN[ids[i].toLowerCase()] }))
-		.filter((x): x is { id: `0x${string}`; entry: NonNullable<(typeof x)["entry"]> } => !!x.entry);
+		.filter(
+			(
+				x,
+			): x is { id: `0x${string}`; entry: NonNullable<(typeof x)["entry"]> } =>
+				!!x.entry,
+		);
 	const nansenResults =
 		nansenEntries.length === 0
 			? []
@@ -137,7 +205,14 @@ export async function fetchAgents(publicClient: PublicClient): Promise<Agent[]> 
 						address: CONTRACTS.nansenModule,
 						abi: NansenModuleAbi,
 						functionName: "verifyAttestation",
-						args: [id, entry.wallet, entry.label, BigInt(entry.pnl), entry.winRate, BigInt(entry.timestamp)],
+						args: [
+							id,
+							entry.wallet,
+							entry.label,
+							BigInt(entry.pnl),
+							entry.winRate,
+							BigInt(entry.timestamp),
+						],
 					})),
 					allowFailure: false,
 				})) as unknown as readonly [boolean, `0x${string}`][]);
@@ -146,7 +221,12 @@ export async function fetchAgents(publicClient: PublicClient): Promise<Agent[]> 
 			const [valid] = nansenResults[i];
 			const badge: NansenBadge = {
 				verified: valid,
-				label: entry.label === "Smart Trader" || entry.label === "Fund" || entry.label === "Whale" ? entry.label : null,
+				label:
+					entry.label === "Smart Trader" ||
+					entry.label === "Fund" ||
+					entry.label === "Whale"
+						? entry.label
+						: null,
 				pnlUsd: entry.pnl,
 				winRatePct: entry.winRate,
 				attestedAt: entry.timestamp * 1000,
@@ -162,18 +242,29 @@ export async function fetchAgents(publicClient: PublicClient): Promise<Agent[]> 
 		const totalShares = fromTokenUnits(v.totalSupply);
 		const sharePrice = v.totalSupply > 0n ? totalAssets / totalShares : 1;
 		const registeredAtMs = Number(r.registeredAt) * 1000;
+		const points = indexed?.pointsByAgent.get(ids[i].toLowerCase()) ?? [];
+		const since = Math.floor(Date.now() / 1000) - THIRTY_DAYS;
+		const recent = points.filter((p) => p.timestamp >= since);
+		const swaps30d = recent.filter((p) => p.source === "swap");
+		// Price at the start of the window: last point before it, else the first one.
+		const priceThen = fromSharePriceUnits(
+			(points.filter((p) => p.timestamp < since).at(-1) ?? points[0])
+				?.sharePrice ?? 10n ** 18n,
+		);
 
 		const agent: Agent = {
 			id: ids[i],
 			name: r.name, // bytes32 — decoded by callers that need display text; see Task 7 note
-			description: "", // descriptionHash only — plaintext isn't on-chain (D9); left blank until an off-chain source exists
+			// Plaintext lives only in the AgentRegistered log (D9); the indexer keeps it.
+			description: descriptionById.get(ids[i].toLowerCase()) ?? "",
 			agentAddress: r.wallet,
 			creatorAddress: r.creator,
 			isPublic: r.isPublic,
 			allowance: fromTokenUnits(v.allowance),
 			used: fromTokenUnits(v.usedInPeriod),
 			resetPeriod: secondsToResetPeriod(v.periodLength),
-			status: STATUS_BY_CODE[r.status] ?? "revoked",
+			// Vault status, not the registry copy: a circuit-breaker pause only exists on the vault.
+			status: STATUS_BY_CODE[v.status] ?? "revoked",
 			registeredAt: registeredAtMs,
 			vault: {
 				address: r.vault,
@@ -181,12 +272,16 @@ export async function fetchAgents(publicClient: PublicClient): Promise<Agent[]> 
 				totalAssets,
 				totalShares,
 				sharePrice,
-				// Real history (from indexed SwapExecuted points) lands in a later
-				// plan — this single synthetic baseline keeps every chart-rendering
-				// component (which indexes sharePriceHistory[0]) safe in the
-				// meantime, and is itself real: every vault starts at 1.0 exactly.
+				// Indexed observations (seed, every swap, breaker trips) plus the live
+				// price as the last point. Without the indexer: 1.0 at registration
+				// and the live price now.
 				sharePriceHistory: [
-					{ t: registeredAtMs, price: 1 },
+					...(points.length > 0
+						? points.map((p) => ({
+								t: p.timestamp * 1000,
+								price: fromSharePriceUnits(p.sharePrice),
+							}))
+						: [{ t: registeredAtMs, price: 1 }]),
 					{ t: Date.now(), price: sharePrice },
 				],
 				highWaterMark: fromSharePriceUnits(v.highWaterMark),
@@ -194,15 +289,25 @@ export async function fetchAgents(publicClient: PublicClient): Promise<Agent[]> 
 				maxDrawdownBps: v.maxDrawdownBps,
 				maxUtilizationBps: v.maxUtilizationBps,
 				yieldEnabled: v.yieldSource !== zeroAddress,
-				yieldApyBps: v.yieldSource === zeroAddress ? 0 : Number(apyByYieldSource.get(v.yieldSource) ?? 0n),
+				yieldApyBps:
+					v.yieldSource === zeroAddress
+						? 0
+						: Number(apyByYieldSource.get(v.yieldSource) ?? 0n),
 				seedAssets: fromTokenUnits(v.seedShares) * sharePrice,
-				circuitBreakerTripped: v.status === 2 /* Paused */,
+				// The vault's own flag: a manual creator pause is also status 2 but
+				// leaves this false. Cleared again when the creator resumes.
+				circuitBreakerTripped: v.breakerTripped,
 			},
 			nansen: nansenById.get(ids[i].toLowerCase()) ?? null,
-			// Real 30d aggregates (from indexed SwapExecuted) land in a later
-			// plan — zero is the honest default for a vault with no history yet,
-			// same philosophy the old mock data used for brand-new agents.
-			stats: { volume30d: 0, trades30d: 0, pnl30d: 0 },
+			// pnl30d approximates the vault's USDC change over the window from the
+			// share price move applied to today's assets.
+			stats: {
+				volume30d: fromTokenUnits(
+					swaps30d.reduce((s, p) => s + p.notional, 0n),
+				),
+				trades30d: swaps30d.length,
+				pnl30d: priceThen > 0 ? totalAssets * (1 - priceThen / sharePrice) : 0,
+			},
 		};
 		return agent;
 	});

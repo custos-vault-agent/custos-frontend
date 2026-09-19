@@ -1,0 +1,47 @@
+// Generated from ../../../../custos-contract/abi/MockAuroraReceiver.json — copy fresh here if the contract's ABI changes.
+export const MockAuroraReceiverAbi = [
+	{
+		type: "constructor",
+		inputs: [
+			{ name: "custos_", type: "address", internalType: "contract CustosCore" },
+			{
+				name: "accountingAsset_",
+				type: "address",
+				internalType: "contract IERC20",
+			},
+		],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "accountingAsset",
+		inputs: [],
+		outputs: [{ name: "", type: "address", internalType: "contract IERC20" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "custos",
+		inputs: [],
+		outputs: [
+			{ name: "", type: "address", internalType: "contract CustosCore" },
+		],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "fulfillIntent",
+		inputs: [
+			{ name: "agentId", type: "bytes32", internalType: "bytes32" },
+			{ name: "subscriber", type: "address", internalType: "address" },
+			{ name: "assets", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [{ name: "shares", type: "uint256", internalType: "uint256" }],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "error",
+		name: "SafeERC20FailedOperation",
+		inputs: [{ name: "token", type: "address", internalType: "address" }],
+	},
+] as const;

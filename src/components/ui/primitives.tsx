@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from "react";
 
 export function cx(...parts: Array<string | false | null | undefined>): string {
 	return parts.filter(Boolean).join(" ");
@@ -9,14 +9,17 @@ export function cx(...parts: Array<string | false | null | undefined>): string {
 export function Card({
 	children,
 	className,
+	style,
 	as: Tag = "div",
 }: {
 	children: ReactNode;
 	className?: string;
+	style?: CSSProperties;
 	as?: "div" | "section" | "article";
 }) {
 	return (
 		<Tag
+			style={style}
 			className={cx("border-2 border-edge bg-surface shadow-pixel", className)}
 		>
 			{children}
@@ -95,7 +98,12 @@ export function Button({
 			type="button"
 			{...rest}
 			className={cx(
+				// Press: the button drops one pixel down-right, like a key going in.
+				// Not scale(): a scaled pixel button blurs its own edges.
+				// Focus: a hard outline in the accent, only for keyboard focus.
 				"uppercase tracking-[1px] disabled:pointer-events-none disabled:opacity-40",
+				"active:translate-x-[1px] active:translate-y-[1px]",
+				"focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
 				VARIANT[variant],
 				SIZE[size],
 				className,
@@ -153,6 +161,7 @@ export function Chip({
 			onClick={onClick}
 			className={cx(
 				"border-2 px-2 py-[1px] text-[17px] uppercase tracking-[1px]",
+				"active:translate-x-[1px] active:translate-y-[1px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
 				active
 					? "border-accent bg-accent text-accent-ink"
 					: "border-edge text-dim hover:border-ink hover:text-ink",
@@ -197,6 +206,21 @@ export function Empty({
 			) : null}
 			{action}
 		</div>
+	);
+}
+
+/** Card-shaped placeholder so a list keeps its height while data loads.
+ *  Blocks, not shimmer: a gradient sweep would be the one soft thing on the page. */
+export function SkeletonCard({ style }: { style?: CSSProperties }) {
+	return (
+		<Card className="animate-enter p-3" as="div">
+			<div aria-hidden style={style} className="space-y-2">
+				<div className="h-[18px] w-2/3 bg-surface2" />
+				<div className="h-[14px] w-1/3 bg-surface2" />
+				<div className="mt-3 h-[36px] w-full bg-surface2" />
+				<div className="h-[14px] w-1/2 bg-surface2" />
+			</div>
+		</Card>
 	);
 }
 

@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { AgentSealBadge } from "#/components/AgentSealBadge";
 import { TextInput } from "#/components/ui/fields";
-import { Chip, Empty, Label } from "#/components/ui/primitives";
+import { Chip, Empty, Label, SkeletonCard } from "#/components/ui/primitives";
 import { useStore } from "#/lib/store";
 import type { Agent } from "#/lib/types";
 
@@ -104,10 +104,11 @@ function MarketplacePage() {
 			</div>
 
 			{agentsLoading ? (
-				<Empty
-					title="Loading agents…"
-					hint="Fetching the marketplace from chain."
-				/>
+				<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+					{[0, 1, 2].map((i) => (
+						<SkeletonCard key={i} style={{ animationDelay: `${i * 40}ms` }} />
+					))}
+				</div>
 			) : visible.length === 0 ? (
 				<Empty
 					title="No vault matches that"
@@ -115,7 +116,7 @@ function MarketplacePage() {
 				/>
 			) : (
 				<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-					{visible.map((agent) => (
+					{visible.map((agent, i) => (
 						<Link
 							key={agent.id}
 							to="/agents/$agentId"
@@ -124,6 +125,8 @@ function MarketplacePage() {
 							<AgentSealBadge
 								agent={agent}
 								subscriberCount={subscriberCount(agent, positionsByAgent)}
+								// 40ms per card, capped: past the first screen it would only delay.
+								style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
 							/>
 						</Link>
 					))}

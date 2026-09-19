@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { formatCompactUsd, formatPercent, shortAddress } from "#/lib/format";
 import type { Agent } from "#/lib/types";
 import { NansenBadgeChip } from "./NansenBadge";
@@ -35,12 +35,15 @@ export function AgentSealBadge({
 	actions,
 	showStats = true,
 	subscriberCount,
+	style,
 }: {
 	agent: Agent;
 	onSelect?: () => void;
 	selected?: boolean;
 	actions?: ReactNode;
 	showStats?: boolean;
+	/** Lets a list stagger `animate-enter` via animationDelay. */
+	style?: CSSProperties;
 	/** Omit on the profile page (not meaningful there) — only the marketplace
 	 *  card passes this. */
 	subscriberCount?: number;
@@ -155,11 +158,15 @@ export function AgentSealBadge({
 	);
 
 	if (!onSelect) {
-		return <Card className={shell}>{body}</Card>;
+		return (
+			<Card className={shell} style={style}>
+				{body}
+			</Card>
+		);
 	}
 
 	return (
-		<Card className={cx(shell, "hover:border-accent")}>
+		<Card className={cx(shell, "hover:border-accent")} style={style}>
 			<button
 				type="button"
 				onClick={onSelect}

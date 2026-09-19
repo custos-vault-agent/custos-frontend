@@ -38,7 +38,8 @@ function ThemeToggle() {
 }
 
 export function TopBar() {
-	const { connected, connect, disconnect, inFlight, connectedAddress } = useStore();
+	const { connected, connect, disconnect, inFlight, connectedAddress } =
+		useStore();
 
 	return (
 		<header className="sticky top-0 z-40 border-b-2 border-edge bg-bg/95 backdrop-blur-[1px]">

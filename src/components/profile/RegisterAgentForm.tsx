@@ -74,7 +74,9 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 				<div>
 					<Label>Creator wallet (locked)</Label>
 					<div className="mt-1">
-						<LockedValue>{connectedAddress ? shortAddress(connectedAddress, 10, 6) : ""}</LockedValue>
+						<LockedValue>
+							{connectedAddress ? shortAddress(connectedAddress, 10, 6) : ""}
+						</LockedValue>
 					</div>
 				</div>
 

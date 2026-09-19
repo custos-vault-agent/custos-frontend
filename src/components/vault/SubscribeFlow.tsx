@@ -26,7 +26,7 @@ export function SubscribeFlow({
 	agentId: string;
 	onClose: () => void;
 }) {
-	const { agents, subscribe, inFlight } = useStore();
+	const { agents, subscribe, inFlight, dismissInFlight } = useStore();
 	const agent = agents.find((a) => a.id === agentId);
 
 	const [chain, setChain] = useState<ChainId>("base");
@@ -40,15 +40,18 @@ export function SubscribeFlow({
 	const wasFlying = useRef(false);
 
 	useEffect(() => {
-		if (flight) {
+		if (flight?.status === "in-progress") {
 			wasFlying.current = true;
 			setLanded(false);
 			return;
 		}
-		if (wasFlying.current) {
+		// The store removes a successful flight the moment its receipt lands; a
+		// failed one stays (status "failed") until dismissed, and is not a landing.
+		if (!flight && wasFlying.current) {
 			wasFlying.current = false;
 			setLanded(true);
 		}
+		if (flight?.status === "failed") wasFlying.current = false;
 	}, [flight]);
 
 	if (!agent) return null;
@@ -90,9 +93,27 @@ export function SubscribeFlow({
 					<div className="mt-2">
 						<RouteStepper steps={flight.steps ?? []} />
 					</div>
-					<p className="mt-2 text-[16px] text-dim">
-						You can leave this panel. It keeps moving.
-					</p>
+					{flight.status === "failed" ? (
+						<>
+							<p
+								className="mt-2 border-2 border-sell px-2 py-1 text-[17px] text-sell"
+								style={{ animation: "stamp 220ms steps(3, end) both" }}
+							>
+								{flight.reason ?? "Transaction failed."}
+							</p>
+							<Button
+								variant="ghost"
+								className="mt-2 w-full"
+								onClick={() => dismissInFlight(flight.id)}
+							>
+								Back
+							</Button>
+						</>
+					) : (
+						<p className="mt-2 text-[16px] text-dim">
+							Confirm in your wallet. You can leave this panel; it keeps moving.
+						</p>
+					)}
 				</div>
 			) : (
 				<div className="space-y-3 p-3">

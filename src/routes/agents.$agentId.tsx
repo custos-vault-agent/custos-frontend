@@ -113,7 +113,10 @@ function VaultDetailPage() {
 									</StatusPill>
 									{!agent.isPublic ? <StatusPill>unlisted</StatusPill> : null}
 									{agent.vault.circuitBreakerTripped ? (
-										<StatusPill tone="fail">breaker tripped</StatusPill>
+										<StatusPill tone="fail">
+											breaker tripped ·{" "}
+											{(agent.vault.maxDrawdownBps / 100).toFixed(0)}% drawdown
+										</StatusPill>
 									) : null}
 								</div>
 							</div>

@@ -124,6 +124,7 @@ export function EditAgentPanel({
 						Save
 					</Button>
 					<Button
+						variant={agent.vault.circuitBreakerTripped ? "danger" : "ghost"}
 						onClick={() =>
 							paused ? resumeAgent(agent.id) : pauseAgent(agent.id)
 						}
@@ -131,6 +132,15 @@ export function EditAgentPanel({
 						{paused ? "Resume" : "Pause"}
 					</Button>
 				</div>
+
+				{agent.vault.circuitBreakerTripped ? (
+					<p className="border-2 border-sell px-2 py-1 text-[16px] text-sell">
+						The vault paused itself: share price fell more than{" "}
+						{(agent.vault.maxDrawdownBps / 100).toFixed(0)}% below its high
+						water mark. Resuming resets the high water mark to the current
+						price, so fees start again from here.
+					</p>
+				) : null}
 
 				<p className="text-[16px] text-dim">
 					Pausing stops new deposits and trades immediately. Redeem always stays

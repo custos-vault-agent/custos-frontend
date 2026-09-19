@@ -2,12 +2,14 @@ import { TanStackDevtools } from "@tanstack/react-devtools";
 import {
 	createRootRoute,
 	HeadContent,
+	Link,
 	Outlet,
 	Scripts,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 
 import { TopBar } from "#/components/TopBar";
+import { Button, Empty } from "#/components/ui/primitives";
 import { Web3Provider } from "#/lib/web3Provider";
 import { StoreProvider } from "#/lib/store";
 import { themeInitScript } from "#/lib/theme";
@@ -41,7 +43,21 @@ export const Route = createRootRoute({
 	}),
 	shellComponent: RootDocument,
 	component: RootLayout,
+	notFoundComponent: NotFound,
 });
+
+function NotFound() {
+	return (
+		<Empty
+			title="404 — page not found"
+			action={
+				<Link to="/">
+					<Button variant="ghost">Back to marketplace</Button>
+				</Link>
+			}
+		/>
+	);
+}
 
 function RootLayout() {
 	return (
