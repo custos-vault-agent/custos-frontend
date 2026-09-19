@@ -1,12 +1,17 @@
+import type { Eip1193Provider } from "@aurora-is-near/intents-connect";
 import { usePrivy } from "@privy-io/react-auth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { createContext, useContext, useMemo, useState } from "react";
 import { useAccount, usePublicClient, useWriteContract } from "wagmi";
 import { AgentVaultAbi } from "./abi/AgentVault";
-import { CustosCoreAbi } from "./abi/CustosCore";
-import { MockAuroraReceiverAbi } from "./abi/MockAuroraReceiver";
 import { MockERC20Abi } from "./abi/MockERC20";
+import {
+	type AuroraUsdc,
+	createAuroraRunner,
+	evmConnector,
+	vaultDepositRecipe,
+} from "./aurora";
 import { CONTRACTS, USDC_DECIMALS } from "./chain";
 import { fetchAgents } from "./onchain";
 import { txErrorMessage } from "./txErrors";
@@ -34,9 +39,12 @@ export type RegisterInput = {
 
 export type SubscribeInput = {
 	agentId: string;
+	/** "monad" deposits straight from the wallet; anything else goes through Aurora. */
 	chain: string;
 	symbol: string;
 	amount: number;
+	/** Required for a non-Monad chain: the USDC token on the origin and on Monad. */
+	aurora?: { origin: AuroraUsdc; destination: AuroraUsdc };
 };
 
 export type RedeemInput = {
@@ -87,7 +95,7 @@ const StoreContext = createContext<StoreValue | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
 	const { ready, authenticated, login, logout } = usePrivy();
-	const { address } = useAccount();
+	const { address, connector } = useAccount();
 	const publicClient = usePublicClient();
 	const { writeContractAsync } = useWriteContract();
 	const queryClient = useQueryClient();
@@ -135,43 +143,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 	const dismissInFlight = (id: string) =>
 		setInFlight((list) => list.filter((e) => e.id !== id));
 
-	// Aurora Intents Connect only ships a mainnet widget/API today, so the
-	// cross-chain leg (source chain -> solver -> bridged USDC landing here)
-	// isn't something this hackathon build can integrate against yet. This
-	// wallet is treated as already holding the resulting USDC on Monad
-	// testnet, and MockAuroraReceiver.fulfillIntent (deployed in place of the
-	// real Aurora Receiver, see chain.ts) takes it from there exactly like
-	// the real one would once bridging lands.
-	async function subscribeOnChain(input: SubscribeInput) {
-		if (!address) throw new Error("connect a wallet first");
-		if (!publicClient) throw new Error("no public client");
-		const assets = BigInt(Math.round(input.amount * 10 ** USDC_DECIMALS));
+	function startFlight(input: SubscribeInput, steps: RouteStep[]) {
 		const agent = agents.find((a) => a.id === input.agentId);
-
 		const id = `subscribe-${input.agentId}-${Date.now()}`;
-		const steps: RouteStep[] = [
-			{ id: "approve", label: "Approve USDC", state: "active" },
-			{ id: "intent", label: "Send intent", state: "pending" },
-			{
-				id: "credit",
-				label: `Credit ${agent?.name ?? "vault"}`,
-				state: "pending",
-			},
-		];
-		const setStep = (
-			index: number,
-			state: RouteStep["state"],
-			detail?: string,
-		) =>
-			patchFlight(id, {
-				steps: steps.map((s, i) => (i === index ? { ...s, state, detail } : s)),
-			});
 		setInFlight((list) => [
 			...list,
 			{
 				id,
 				kind: "subscribe",
-				actor: { kind: "owner", name: "you", address },
+				actor: { kind: "owner", name: "you", address: address ?? "" },
 				agentId: input.agentId,
 				timestamp: Date.now(),
 				title: `Subscribe · ${agent?.name ?? input.agentId.slice(0, 10)}`,
@@ -180,48 +160,143 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 				steps,
 			},
 		]);
+		const setStep = (
+			index: number,
+			state: RouteStep["state"],
+			detail?: string,
+		) => {
+			steps[index] = { ...steps[index], state, detail } as RouteStep;
+			patchFlight(id, { steps: [...steps] });
+		};
+		const fail = (index: number, err: unknown) =>
+			patchFlight(id, {
+				status: "failed",
+				reason: txErrorMessage(err),
+				steps: steps.map((s, i) =>
+					i === index ? { ...s, state: "failed", detail: undefined } : s,
+				),
+			});
+		return { id, setStep, fail };
+	}
 
+	/** Same-chain path: approve USDC to the vault, then an ordinary ERC-4626 deposit. */
+	async function depositOnMonad(input: SubscribeInput) {
+		if (!address) throw new Error("connect a wallet first");
+		if (!publicClient) throw new Error("no public client");
+		const agent = agents.find((a) => a.id === input.agentId);
+		if (!agent) throw new Error("unknown agent");
+		const vault = agent.vault.address as `0x${string}`;
+		const assets = BigInt(Math.round(input.amount * 10 ** USDC_DECIMALS));
+
+		const flight = startFlight(input, [
+			{ id: "approve", label: "Approve USDC", state: "active" },
+			{ id: "deposit", label: `Deposit into ${agent.name}`, state: "pending" },
+		]);
 		let step = 0;
 		try {
 			const approveHash = await writeContractAsync({
 				address: CONTRACTS.usdc,
 				abi: MockERC20Abi,
 				functionName: "approve",
-				args: [CONTRACTS.auroraReceiver, assets],
+				args: [vault, assets],
 			});
-			setStep(0, "active", "confirming");
+			flight.setStep(0, "active", "confirming");
 			await publicClient.waitForTransactionReceipt({ hash: approveHash });
-			steps[0] = { ...steps[0], state: "done", detail: undefined } as RouteStep;
+			flight.setStep(0, "done");
 			step = 1;
-			setStep(1, "active");
+			flight.setStep(1, "active");
 
-			const intentHash = await writeContractAsync({
-				address: CONTRACTS.auroraReceiver,
-				// Errors from the vault/core bubble through the receiver; their ABIs
-				// are what turns a raw revert into a name txErrorMessage can read.
-				abi: [...MockAuroraReceiverAbi, ...CustosCoreAbi, ...AgentVaultAbi],
-				functionName: "fulfillIntent",
-				args: [input.agentId as `0x${string}`, address, assets],
+			const depositHash = await writeContractAsync({
+				address: vault,
+				abi: AgentVaultAbi,
+				functionName: "deposit",
+				args: [assets, address],
 			});
-			setStep(1, "active", "confirming");
-			await publicClient.waitForTransactionReceipt({ hash: intentHash });
-			steps[1] = { ...steps[1], state: "done", detail: undefined } as RouteStep;
-			step = 2;
-			setStep(2, "done");
+			flight.setStep(1, "active", "confirming");
+			await publicClient.waitForTransactionReceipt({ hash: depositHash });
+			flight.setStep(1, "done");
 
 			await queryClient.invalidateQueries({ queryKey: ["agents"] });
-			dismissInFlight(id);
+			dismissInFlight(flight.id);
 		} catch (err) {
-			const reason = txErrorMessage(err);
-			patchFlight(id, {
-				status: "failed",
-				reason,
-				steps: steps.map((s, i) =>
-					i === step ? { ...s, state: "failed", detail: undefined } : s,
-				),
-			});
+			flight.fail(step, err);
 			throw err;
 		}
+	}
+
+	/** Cross-chain path: Aurora bridges USDC to the user's intermediary on Monad and
+	 *  runs approve + deposit from there. The route steps follow the SDK's phases. */
+	async function depositViaAurora(input: SubscribeInput) {
+		if (!address || !connector) throw new Error("connect a wallet first");
+		if (!input.aurora) throw new Error("aurora tokens missing");
+		const agent = agents.find((a) => a.id === input.agentId);
+		if (!agent) throw new Error("unknown agent");
+		const { origin, destination } = input.aurora;
+		const amount = BigInt(
+			Math.round(input.amount * 10 ** origin.decimals),
+		).toString();
+
+		const flight = startFlight(input, [
+			{ id: "sign", label: "Sign intent", state: "active" },
+			{
+				id: "deposit",
+				label: `Send USDC on ${origin.blockchain}`,
+				state: "pending",
+			},
+			{
+				id: "settle",
+				label: `Bridge and deposit into ${agent.name}`,
+				state: "pending",
+			},
+		]);
+		let step = 0;
+		const getProvider = () =>
+			connector.getProvider() as Promise<Eip1193Provider>;
+		const runner = createAuroraRunner(
+			evmConnector(address, getProvider, [
+				origin.blockchain,
+				destination.blockchain,
+			]),
+			getProvider,
+			(event) => {
+				if (event.type === "deposit-sent") {
+					flight.setStep(1, "done", event.txHash.slice(0, 10));
+					step = 2;
+					flight.setStep(2, "active");
+				}
+			},
+		);
+		try {
+			await runner.run({
+				recipe: vaultDepositRecipe(destination),
+				params: { vault: agent.vault.address as `0x${string}` },
+				quote: {
+					originAsset: origin.assetId,
+					destinationAsset: destination.assetId,
+					amount,
+					swapType: "EXACT_INPUT",
+					slippageTolerance: 100,
+				},
+				originChain: origin.blockchain,
+				originToken: {
+					contractAddress: origin.contractAddress,
+					decimals: origin.decimals,
+				},
+				depositViaWallet: true,
+			});
+			flight.setStep(2, "done");
+			await queryClient.invalidateQueries({ queryKey: ["agents"] });
+			dismissInFlight(flight.id);
+		} catch (err) {
+			flight.fail(step, err);
+			throw err;
+		}
+	}
+
+	async function subscribeOnChain(input: SubscribeInput) {
+		return input.chain === "monad"
+			? depositOnMonad(input)
+			: depositViaAurora(input);
 	}
 
 	const value: StoreValue = {

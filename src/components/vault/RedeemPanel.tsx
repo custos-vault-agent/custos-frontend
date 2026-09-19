@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Field, Select, TextInput } from "#/components/ui/fields";
+import { Field, TextInput } from "#/components/ui/fields";
 import {
 	Button,
 	Card,
@@ -8,10 +8,6 @@ import {
 	Label,
 } from "#/components/ui/primitives";
 import { useStore } from "#/lib/store";
-import type { ChainId } from "#/lib/types";
-import { CHAIN_LABEL } from "#/mock/assets";
-
-const CHAINS: ChainId[] = ["monad", "base", "arbitrum", "ethereum", "solana"];
 
 export function RedeemPanel({
 	agentId,
@@ -24,7 +20,6 @@ export function RedeemPanel({
 	const agent = agents.find((a) => a.id === agentId);
 	const position = myPositions.find((p) => p.agentId === agentId);
 
-	const [chain, setChain] = useState<ChainId>("monad");
 	const [shares, setShares] = useState("");
 	const [done, setDone] = useState(false);
 
@@ -84,19 +79,6 @@ export function RedeemPanel({
 					</p>
 				) : null}
 
-				<Field label="Destination chain">
-					<Select
-						value={chain}
-						onChange={(e) => setChain(e.target.value as ChainId)}
-					>
-						{CHAINS.map((option) => (
-							<option key={option} value={option}>
-								{CHAIN_LABEL[option]}
-							</option>
-						))}
-					</Select>
-				</Field>
-
 				<Field
 					label="Shares"
 					hint={`held ${position.shares.toLocaleString("en-US", { maximumFractionDigits: 4 })}`}
@@ -130,7 +112,7 @@ export function RedeemPanel({
 					className="w-full"
 					disabled={sharesNumber <= 0 || overHeld}
 					onClick={() => {
-						redeem({ agentId, shares: sharesNumber, chain });
+						redeem({ agentId, shares: sharesNumber, chain: "monad" });
 						setShares("");
 						setDone(true);
 					}}

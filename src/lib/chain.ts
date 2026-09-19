@@ -22,10 +22,6 @@ export const CONTRACTS = {
 	nansigil: "0x0000000000000000000000000000000000000000" as const,
 	usdc: "0xdA4Ce9769cb5A1EF725d7847f0B8b2b7a1908645" as const,
 	mon: "0x1a4E9Ecf9F68F413E59F414b31d5F48fDb99d852" as const,
-	// MockAuroraReceiver — stands in for Aurora Intents Connect, which only
-	// ships a mainnet widget/API today. Update after `make deploy` re-runs
-	// (its address is printed in deployments/anvil.json as "auroraReceiver").
-	auroraReceiver: "0x0000000000000000000000000000000000000000" as const,
 };
 
 export const USDC_DECIMALS = 6;

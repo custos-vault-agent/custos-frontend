@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ActivityRouteImport } from './routes/activity'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as AgentsAgentIdRouteImport } from './routes/agents.$agentId'
+import { Route as ApiAuroraSplatRouteImport } from './routes/api/aurora.$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,18 +35,25 @@ const AgentsAgentIdRoute = AgentsAgentIdRouteImport.update({
   path: '/agents/$agentId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAuroraSplatRoute = ApiAuroraSplatRouteImport.update({
+  id: '/api/aurora/$',
+  path: '/api/aurora/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/activity': typeof ActivityRoute
   '/profile': typeof ProfileRoute
   '/agents/$agentId': typeof AgentsAgentIdRoute
+  '/api/aurora/$': typeof ApiAuroraSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/activity': typeof ActivityRoute
   '/profile': typeof ProfileRoute
   '/agents/$agentId': typeof AgentsAgentIdRoute
+  '/api/aurora/$': typeof ApiAuroraSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,13 +61,21 @@ export interface FileRoutesById {
   '/activity': typeof ActivityRoute
   '/profile': typeof ProfileRoute
   '/agents/$agentId': typeof AgentsAgentIdRoute
+  '/api/aurora/$': typeof ApiAuroraSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/activity' | '/profile' | '/agents/$agentId'
+  fullPaths:
+    '/' | '/activity' | '/profile' | '/agents/$agentId' | '/api/aurora/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/activity' | '/profile' | '/agents/$agentId'
-  id: '__root__' | '/' | '/activity' | '/profile' | '/agents/$agentId'
+  to: '/' | '/activity' | '/profile' | '/agents/$agentId' | '/api/aurora/$'
+  id:
+    | '__root__'
+    | '/'
+    | '/activity'
+    | '/profile'
+    | '/agents/$agentId'
+    | '/api/aurora/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -67,6 +83,7 @@ export interface RootRouteChildren {
   ActivityRoute: typeof ActivityRoute
   ProfileRoute: typeof ProfileRoute
   AgentsAgentIdRoute: typeof AgentsAgentIdRoute
+  ApiAuroraSplatRoute: typeof ApiAuroraSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -99,6 +116,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AgentsAgentIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/aurora/$': {
+      id: '/api/aurora/$'
+      path: '/api/aurora/$'
+      fullPath: '/api/aurora/$'
+      preLoaderRoute: typeof ApiAuroraSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -107,6 +131,7 @@ const rootRouteChildren: RootRouteChildren = {
   ActivityRoute: ActivityRoute,
   ProfileRoute: ProfileRoute,
   AgentsAgentIdRoute: AgentsAgentIdRoute,
+  ApiAuroraSplatRoute: ApiAuroraSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

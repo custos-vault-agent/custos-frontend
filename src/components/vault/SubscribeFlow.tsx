@@ -1,4 +1,6 @@
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { useAccount, useReadContract } from "wagmi";
 import { Field, Select, TextInput } from "#/components/ui/fields";
 import {
 	Button,
@@ -8,11 +10,10 @@ import {
 	Label,
 } from "#/components/ui/primitives";
 import { RouteStepper } from "#/components/ui/route";
+import { MockERC20Abi } from "#/lib/abi/MockERC20";
+import { AURORA_ENABLED, chainLabel, fetchAuroraUsdc } from "#/lib/aurora";
+import { CONTRACTS, USDC_DECIMALS } from "#/lib/chain";
 import { useStore } from "#/lib/store";
-import type { AssetSymbol, ChainId } from "#/lib/types";
-import { ASSETS, assetsForChain, balanceOf, CHAIN_LABEL } from "#/mock/assets";
-
-const CHAINS: ChainId[] = ["solana", "base", "arbitrum", "ethereum"];
 
 /**
  * Reuses the deposit route's RouteStepper on purpose — same underlying
@@ -29,9 +30,25 @@ export function SubscribeFlow({
 	const { agents, subscribe, inFlight, dismissInFlight } = useStore();
 	const agent = agents.find((a) => a.id === agentId);
 
-	const [chain, setChain] = useState<ChainId>("base");
-	const [symbol, setSymbol] = useState<AssetSymbol>("USDC");
+	const { address } = useAccount();
+	// Monad is always available (a plain deposit from the connected wallet). Other
+	// chains come from Aurora's supported list and only when the integration is on.
+	const { data: aurora } = useQuery({
+		queryKey: ["aurora-usdc"],
+		queryFn: fetchAuroraUsdc,
+		enabled: AURORA_ENABLED,
+		staleTime: 10 * 60 * 1000,
+	});
+	const chains = ["monad", ...(aurora?.origins.map((t) => t.blockchain) ?? [])];
+	const [chain, setChain] = useState("monad");
 	const [amount, setAmount] = useState("500");
+	const { data: usdcBalance } = useReadContract({
+		address: CONTRACTS.usdc,
+		abi: MockERC20Abi,
+		functionName: "balanceOf",
+		args: address ? [address] : undefined,
+		query: { enabled: !!address && chain === "monad", refetchInterval: 10_000 },
+	});
 	const [landed, setLanded] = useState(false);
 
 	const flight =
@@ -58,11 +75,14 @@ export function SubscribeFlow({
 
 	const blocked = agent.status !== "active";
 	const amountNumber = Number(amount) || 0;
-	const balance = balanceOf(symbol, chain);
-	const insufficient = amountNumber > balance;
-	const symbols = Array.from(
-		new Set(assetsForChain(chain).map((a) => a.symbol)),
-	);
+	// Only the Monad balance is readable from here; Aurora reports origin-side
+	// shortfalls itself when the transfer is attempted.
+	const balance =
+		chain === "monad" && usdcBalance !== undefined
+			? Number(usdcBalance) / 10 ** USDC_DECIMALS
+			: null;
+	const insufficient = balance !== null && amountNumber > balance;
+	const origin = aurora?.origins.find((t) => t.blockchain === chain);
 
 	return (
 		<Card className="animate-enter">
@@ -126,37 +146,14 @@ export function SubscribeFlow({
 						</p>
 					) : null}
 
-					<Field label="Source chain">
-						<Select
-							value={chain}
-							onChange={(e) => {
-								const next = e.target.value as ChainId;
-								setChain(next);
-								if (
-									!ASSETS.some((a) => a.chain === next && a.symbol === symbol)
-								) {
-									setSymbol(
-										ASSETS.find((a) => a.chain === next)?.symbol ?? "USDC",
-									);
-								}
-							}}
-						>
-							{CHAINS.map((option) => (
+					<Field
+						label="Source chain"
+						hint={chain === "monad" ? undefined : "via Aurora Intents"}
+					>
+						<Select value={chain} onChange={(e) => setChain(e.target.value)}>
+							{chains.map((option) => (
 								<option key={option} value={option}>
-									{CHAIN_LABEL[option]}
-								</option>
-							))}
-						</Select>
-					</Field>
-
-					<Field label="Asset">
-						<Select
-							value={symbol}
-							onChange={(e) => setSymbol(e.target.value as AssetSymbol)}
-						>
-							{symbols.map((option) => (
-								<option key={option} value={option}>
-									{option}
+									{chainLabel(option)}
 								</option>
 							))}
 						</Select>
@@ -164,10 +161,12 @@ export function SubscribeFlow({
 
 					<Field
 						label="Amount"
-						hint={`bal ${balance.toLocaleString("en-US")}`}
-						error={
-							insufficient ? "Insufficient balance on that chain" : undefined
+						hint={
+							balance === null
+								? "USDC"
+								: `bal ${balance.toLocaleString("en-US")} USDC`
 						}
+						error={insufficient ? "Insufficient USDC on Monad" : undefined}
 					>
 						<TextInput
 							inputMode="decimal"
@@ -183,9 +182,9 @@ export function SubscribeFlow({
 					<div>
 						<Label>Route</Label>
 						<p className="mt-1 text-[17px] text-dim">
-							{CHAIN_LABEL[chain]} → Aurora solver → Deposit Receiver →{" "}
-							{agent.name}
-							's vault. No manual bridging.
+							{chain === "monad"
+								? `Your wallet → ${agent.name}'s vault. Two transactions: approve, then deposit.`
+								: `${chainLabel(chain)} → Aurora → your account on Monad → ${agent.name}'s vault. One signature, one transfer; no manual bridging.`}
 						</p>
 					</div>
 
@@ -193,12 +192,25 @@ export function SubscribeFlow({
 						variant="solid"
 						size="lg"
 						className="w-full"
-						disabled={amountNumber <= 0 || insufficient}
+						disabled={
+							amountNumber <= 0 ||
+							insufficient ||
+							(chain !== "monad" && (!origin || !aurora?.destination))
+						}
 						onClick={() =>
-							subscribe({ agentId, chain, symbol, amount: amountNumber })
+							subscribe({
+								agentId,
+								chain,
+								symbol: "USDC",
+								amount: amountNumber,
+								aurora:
+									origin && aurora?.destination
+										? { origin, destination: aurora.destination }
+										: undefined,
+							})
 						}
 					>
-						Send intent
+						{chain === "monad" ? "Deposit" : "Send intent"}
 					</Button>
 				</div>
 			)}
