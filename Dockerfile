@@ -35,8 +35,10 @@ ENV NODE_ENV=production \
     PORT=3000 \
     NITRO_HOST=0.0.0.0 \
     NITRO_PORT=3000
-COPY --from=build --chown=bun:bun /app/.output ./.output
-USER bun
+# The distroless image runs as root and has no `bun` account, so the user is
+# numeric. 1000 is the uid of `bun` in the alpine image the build stage uses.
+COPY --from=build --chown=1000:1000 /app/.output ./.output
+USER 1000:1000
 EXPOSE 3000
 # Distroless has no shell or curl; probe with Bun itself.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
