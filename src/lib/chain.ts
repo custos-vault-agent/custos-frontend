@@ -1,27 +1,56 @@
-import { defineChain } from "viem";
+import {
+	type Address,
+	defineChain,
+	getAddress,
+	isAddress,
+	zeroAddress,
+} from "viem";
 import type { ResetPeriod } from "./types";
 
-// Monad testnet. Confirmed via `cast chain-id --rpc-url <VITE_RPC_URL>` -> 10143.
-export const monadTestnet = defineChain({
-	id: 10143,
-	name: "Monad Testnet",
+// Chain and contract addresses come from the environment, so one build can point
+// at testnet and another at mainnet without a code change. Vite inlines every
+// VITE_* value at build time, so a change needs a rebuild, not a restart.
+function required(name: string, value: string | undefined): string {
+	if (!value) throw new Error(`missing env ${name}`);
+	return value;
+}
+
+/** Fails at startup on a malformed address, rather than on the first call. */
+function address(
+	name: string,
+	value: string | undefined,
+	fallback?: Address,
+): Address {
+	if (!value) {
+		if (fallback !== undefined) return fallback;
+		throw new Error(`missing env ${name}`);
+	}
+	if (!isAddress(value))
+		throw new Error(`env ${name} is not an address: ${value}`);
+	return getAddress(value);
+}
+
+const CHAIN_ID = Number(import.meta.env.VITE_CHAIN_ID ?? "10143");
+
+export const monadChain = defineChain({
+	id: CHAIN_ID,
+	name: CHAIN_ID === 143 ? "Monad" : "Monad Testnet",
 	nativeCurrency: { name: "Monad", symbol: "MON", decimals: 18 },
 	rpcUrls: {
-		default: { http: [import.meta.env.VITE_RPC_URL as string] },
+		default: { http: [required("VITE_RPC_URL", import.meta.env.VITE_RPC_URL)] },
 	},
 });
 
-// Real, stable testnet addresses — copied from
-// custos-contract/deployments/anvil.json. If the contracts are redeployed,
-// update these literals (there is no runtime deployment-file lookup; this
-// is a persistent chain, not local Anvil where addresses reset every run).
 export const CONTRACTS = {
-	custosCore: "0xCfBbd07b107A6cb7e685e555E4C9ef956d11a0bB" as const,
-	// NanSigil (repo nansigil-contract). Not deployed on testnet yet: zero disables the
-	// badge lookup entirely until `make deploy` in nansigil-contract prints an address.
-	nansigil: "0x0000000000000000000000000000000000000000" as const,
-	usdc: "0xdA4Ce9769cb5A1EF725d7847f0B8b2b7a1908645" as const,
-	mon: "0x1a4E9Ecf9F68F413E59F414b31d5F48fDb99d852" as const,
+	custosCore: address("VITE_CUSTOS_CORE", import.meta.env.VITE_CUSTOS_CORE),
+	usdc: address("VITE_USDC", import.meta.env.VITE_USDC),
+	// NanSigil (repo nansigil-contract). The zero address disables the badge
+	// lookup, which is what an empty value means while it is not deployed.
+	nansigil: address(
+		"VITE_NANSIGIL",
+		import.meta.env.VITE_NANSIGIL,
+		zeroAddress,
+	),
 };
 
 export const USDC_DECIMALS = 6;

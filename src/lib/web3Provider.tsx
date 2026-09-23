@@ -1,14 +1,14 @@
 import { PrivyProvider } from "@privy-io/react-auth";
-import { WagmiProvider, createConfig } from "@privy-io/wagmi";
+import { createConfig, WagmiProvider } from "@privy-io/wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { http } from "viem";
 import type { ReactNode } from "react";
-import { monadTestnet } from "./chain";
+import { http } from "viem";
+import { monadChain } from "./chain";
 
 const wagmiConfig = createConfig({
-	chains: [monadTestnet],
+	chains: [monadChain],
 	transports: {
-		[monadTestnet.id]: http(),
+		[monadChain.id]: http(),
 	},
 });
 
@@ -21,8 +21,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 			config={{
 				loginMethods: ["wallet", "email"],
 				appearance: { walletChainType: "ethereum-only" },
-				defaultChain: monadTestnet,
-				supportedChains: [monadTestnet],
+				defaultChain: monadChain,
+				supportedChains: [monadChain],
 			}}
 		>
 			<QueryClientProvider client={queryClient}>
