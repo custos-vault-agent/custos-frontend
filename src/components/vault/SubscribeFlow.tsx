@@ -39,7 +39,16 @@ export function SubscribeFlow({
 		enabled: AURORA_ENABLED,
 		staleTime: 10 * 60 * 1000,
 	});
-	const chains = ["monad", ...(aurora?.origins.map((t) => t.blockchain) ?? [])];
+	// Cross-chain needs the integration switched on AND both ends of the route
+	// (an origin USDC and USDC on Monad). Without it the vault's own chain is the
+	// only source, and the picker says so rather than offering one dead option.
+	const crossChain =
+		AURORA_ENABLED &&
+		!!aurora?.destination &&
+		(aurora?.origins.length ?? 0) > 0;
+	const chains = crossChain
+		? ["monad", ...(aurora?.origins ?? []).map((t) => t.blockchain)]
+		: ["monad"];
 	const [chain, setChain] = useState("monad");
 	const [amount, setAmount] = useState("500");
 	const { data: usdcBalance } = useReadContract({
@@ -148,9 +157,19 @@ export function SubscribeFlow({
 
 					<Field
 						label="Source chain"
-						hint={chain === "monad" ? undefined : "via Aurora Intents"}
+						hint={
+							!crossChain
+								? "Monad only"
+								: chain === "monad"
+									? undefined
+									: "via Aurora Intents"
+						}
 					>
-						<Select value={chain} onChange={(e) => setChain(e.target.value)}>
+						<Select
+							value={chain}
+							disabled={!crossChain}
+							onChange={(e) => setChain(e.target.value)}
+						>
 							{chains.map((option) => (
 								<option key={option} value={option}>
 									{chainLabel(option)}
@@ -182,9 +201,11 @@ export function SubscribeFlow({
 					<div>
 						<Label>Route</Label>
 						<p className="mt-1 text-[17px] text-dim">
-							{chain === "monad"
-								? `Your wallet → ${agent.name}'s vault. Two transactions: approve, then deposit.`
-								: `${chainLabel(chain)} → Aurora → your account on Monad → ${agent.name}'s vault. One signature, one transfer; no manual bridging.`}
+							{chain !== "monad"
+								? `${chainLabel(chain)} → Aurora → your account on Monad → ${agent.name}'s vault. One signature, one transfer; no manual bridging.`
+								: crossChain
+									? `Your wallet → ${agent.name}'s vault. Two transactions: approve, then deposit.`
+									: `Your wallet → ${agent.name}'s vault. Two transactions: approve, then deposit. Cross-chain deposits are off, so USDC has to be on Monad already.`}
 						</p>
 					</div>
 

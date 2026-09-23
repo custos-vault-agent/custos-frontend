@@ -2,7 +2,7 @@ import type { ComponentPropsWithRef, ReactNode } from "react";
 import { cx, Label } from "./primitives";
 
 const CONTROL =
-	"w-full border-2 border-edge bg-surface2 px-2 py-[3px] focus:border-accent focus:outline-none";
+	"w-full border-2 border-edge bg-surface2 px-2 py-[3px] focus:border-accent focus:outline-none disabled:cursor-not-allowed disabled:opacity-50";
 
 export function Field({
 	label,
