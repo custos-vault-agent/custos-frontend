@@ -7,6 +7,7 @@ import {
 	CONTRACTS,
 	fromSharePriceUnits,
 	fromTokenUnits,
+	monadChain,
 	secondsToResetPeriod,
 } from "./chain";
 import { fetchIndexedAgents } from "./indexer";
@@ -83,7 +84,17 @@ const THIRTY_DAYS = 30 * 24 * 60 * 60;
 export async function fetchAgents(
 	publicClient: PublicClient,
 ): Promise<Agent[]> {
+	// The RPC decides which chain this really is. A VITE_RPC_URL that points at a
+	// different network than VITE_CHAIN_ID makes the wallet ask for the wrong chain
+	// and every address read return nothing, so say that instead of showing an
+	// empty marketplace.
 	const chainId = await publicClient.getChainId();
+	if (chainId !== monadChain.id) {
+		throw new Error(
+			`VITE_RPC_URL serves chain ${chainId}, but VITE_CHAIN_ID is ${monadChain.id}. Point both at the same network and rebuild.`,
+		);
+	}
+
 	const indexed = await fetchIndexedAgents(chainId).catch((err) => {
 		console.warn("indexer unavailable, listing from chain:", err);
 		return null;

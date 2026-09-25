@@ -43,7 +43,7 @@ export function TopBar() {
 
 	return (
 		<header className="sticky top-0 z-40 border-b-2 border-edge bg-bg/95 backdrop-blur-[1px]">
-			<div className="mx-auto flex h-[58px] max-w-[1280px] items-center gap-4 px-4">
+			<div className="mx-auto flex h-[58px] max-w-[1280px] items-center gap-2 px-4 sm:gap-4">
 				<Link to="/" className="shrink-0">
 					<Logo />
 				</Link>
@@ -65,7 +65,7 @@ export function TopBar() {
 					))}
 				</nav>
 
-				<div className="ml-auto flex items-center gap-2">
+				<div className="ml-auto flex shrink-0 items-center gap-2">
 					{inFlight.length > 0 ? (
 						<Link
 							to="/activity"
@@ -101,7 +101,8 @@ export function TopBar() {
 						</button>
 					) : (
 						<Button variant="primary" size="sm" onClick={connect}>
-							Connect wallet
+							<span className="hidden sm:inline">Connect wallet</span>
+							<span className="sm:hidden">Connect</span>
 						</Button>
 					)}
 				</div>

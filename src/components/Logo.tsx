@@ -79,7 +79,9 @@ export function Logo() {
 	return (
 		<span className="flex items-center gap-2 text-ink">
 			<SealMark drawn={drawn} />
-			<span className="text-[25px] uppercase tracking-[3px]">Custos</span>
+			<span className="hidden text-[25px] uppercase tracking-[3px] sm:inline">
+				Custos
+			</span>
 		</span>
 	);
 }
