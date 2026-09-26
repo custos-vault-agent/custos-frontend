@@ -51,6 +51,13 @@ export const CONTRACTS = {
 		import.meta.env.VITE_NANSIGIL,
 		zeroAddress,
 	),
+	// Yield source the protocol allowlisted (`setYieldSourceAllowed`). The zero
+	// address means none exists, and a new vault then keeps its USDC idle.
+	yieldSource: address(
+		"VITE_YIELD_SOURCE",
+		import.meta.env.VITE_YIELD_SOURCE,
+		zeroAddress,
+	),
 };
 
 export const USDC_DECIMALS = 6;

@@ -3,8 +3,10 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { createContext, useContext, useMemo, useState } from "react";
+import { stringToHex, zeroAddress } from "viem";
 import { useAccount, usePublicClient, useWriteContract } from "wagmi";
 import { AgentVaultAbi } from "./abi/AgentVault";
+import { CustosCoreAbi } from "./abi/CustosCore";
 import { MockERC20Abi } from "./abi/MockERC20";
 import {
 	type AuroraUsdc,
@@ -12,11 +14,12 @@ import {
 	evmConnector,
 	vaultDepositRecipe,
 } from "./aurora";
-import { CONTRACTS, USDC_DECIMALS } from "./chain";
+import { CONTRACTS, RESET_PERIOD_SECONDS, USDC_DECIMALS } from "./chain";
 import { fetchAgents } from "./onchain";
 import { txErrorMessage } from "./txErrors";
 import type {
 	ActivityEntry,
+	ActivityKind,
 	Agent,
 	Position,
 	ResetPeriod,
@@ -143,19 +146,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 	const dismissInFlight = (id: string) =>
 		setInFlight((list) => list.filter((e) => e.id !== id));
 
-	function startFlight(input: SubscribeInput, steps: RouteStep[]) {
-		const agent = agents.find((a) => a.id === input.agentId);
-		const id = `subscribe-${input.agentId}-${Date.now()}`;
+	function startFlight(
+		meta: {
+			kind: ActivityKind;
+			/** Distinguishes concurrent flights of the same kind. */
+			key: string;
+			agentId: string;
+			title: string;
+			amount: string;
+		},
+		steps: RouteStep[],
+	) {
+		const id = `${meta.kind}-${meta.key}-${Date.now()}`;
 		setInFlight((list) => [
 			...list,
 			{
 				id,
-				kind: "subscribe",
+				kind: meta.kind,
 				actor: { kind: "owner", name: "you", address: address ?? "" },
-				agentId: input.agentId,
+				agentId: meta.agentId,
 				timestamp: Date.now(),
-				title: `Subscribe · ${agent?.name ?? input.agentId.slice(0, 10)}`,
-				amount: `${input.amount.toLocaleString("en-US")} ${input.symbol}`,
+				title: meta.title,
+				amount: meta.amount,
 				status: "in-progress",
 				steps,
 			},
@@ -188,10 +200,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		const vault = agent.vault.address as `0x${string}`;
 		const assets = BigInt(Math.round(input.amount * 10 ** USDC_DECIMALS));
 
-		const flight = startFlight(input, [
-			{ id: "approve", label: "Approve USDC", state: "active" },
-			{ id: "deposit", label: `Deposit into ${agent.name}`, state: "pending" },
-		]);
+		const flight = startFlight(
+			{
+				kind: "subscribe",
+				key: input.agentId,
+				agentId: input.agentId,
+				title: `Subscribe · ${agent.name}`,
+				amount: `${input.amount.toLocaleString("en-US")} ${input.symbol}`,
+			},
+			[
+				{ id: "approve", label: "Approve USDC", state: "active" },
+				{
+					id: "deposit",
+					label: `Deposit into ${agent.name}`,
+					state: "pending",
+				},
+			],
+		);
 		let step = 0;
 		try {
 			const approveHash = await writeContractAsync({
@@ -236,19 +261,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 			Math.round(input.amount * 10 ** origin.decimals),
 		).toString();
 
-		const flight = startFlight(input, [
-			{ id: "sign", label: "Sign intent", state: "active" },
+		const flight = startFlight(
 			{
-				id: "deposit",
-				label: `Send USDC on ${origin.blockchain}`,
-				state: "pending",
+				kind: "subscribe",
+				key: input.agentId,
+				agentId: input.agentId,
+				title: `Subscribe · ${agent.name}`,
+				amount: `${input.amount.toLocaleString("en-US")} ${input.symbol}`,
 			},
-			{
-				id: "settle",
-				label: `Bridge and deposit into ${agent.name}`,
-				state: "pending",
-			},
-		]);
+			[
+				{ id: "sign", label: "Sign intent", state: "active" },
+				{
+					id: "deposit",
+					label: `Send USDC on ${origin.blockchain}`,
+					state: "pending",
+				},
+				{
+					id: "settle",
+					label: `Bridge and deposit into ${agent.name}`,
+					state: "pending",
+				},
+			],
+		);
 		let step = 0;
 		const getProvider = () =>
 			connector.getProvider() as Promise<Eip1193Provider>;
@@ -293,6 +327,76 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		}
 	}
 
+	/** Registration: approve the seed to CustosCore, then one `registerAgent`
+	 *  call that deploys the vault, pulls the seed and locks its shares. */
+	async function registerAgentOnChain(input: RegisterInput) {
+		if (!address) throw new Error("connect a wallet first");
+		if (!publicClient) throw new Error("no public client");
+		const seed = BigInt(Math.round(input.seedAmount * 10 ** USDC_DECIMALS));
+		const allowance = BigInt(Math.round(input.allowance * 10 ** USDC_DECIMALS));
+		// address(0) keeps the vault's USDC idle; anything else must be allowlisted
+		// by the protocol or registerAgent reverts with YieldSourceNotAllowed.
+		const yieldSource = input.yieldEnabled
+			? CONTRACTS.yieldSource
+			: zeroAddress;
+
+		const flight = startFlight(
+			{
+				kind: "seed-deposit",
+				key: input.name,
+				agentId: "",
+				title: `Register · ${input.name}`,
+				amount: `${input.seedAmount.toLocaleString("en-US")} USDC`,
+			},
+			[
+				{ id: "approve", label: "Approve seed USDC", state: "active" },
+				{ id: "register", label: "Register and seed vault", state: "pending" },
+			],
+		);
+		let step = 0;
+		try {
+			const approveHash = await writeContractAsync({
+				address: CONTRACTS.usdc,
+				abi: MockERC20Abi,
+				functionName: "approve",
+				args: [CONTRACTS.custosCore, seed],
+			});
+			flight.setStep(0, "active", "confirming");
+			await publicClient.waitForTransactionReceipt({ hash: approveHash });
+			flight.setStep(0, "done");
+			step = 1;
+			flight.setStep(1, "active");
+
+			const registerHash = await writeContractAsync({
+				address: CONTRACTS.custosCore,
+				abi: CustosCoreAbi,
+				functionName: "registerAgent",
+				args: [
+					stringToHex(input.name, { size: 32 }),
+					input.description,
+					input.agentAddress as `0x${string}`,
+					allowance,
+					RESET_PERIOD_SECONDS[input.resetPeriod],
+					input.feeRateBps,
+					input.maxDrawdownBps,
+					yieldSource,
+					input.maxUtilizationBps,
+					input.isPublic,
+					seed,
+				],
+			});
+			flight.setStep(1, "active", "confirming");
+			await publicClient.waitForTransactionReceipt({ hash: registerHash });
+			flight.setStep(1, "done");
+
+			await queryClient.invalidateQueries({ queryKey: ["agents"] });
+			dismissInFlight(flight.id);
+		} catch (err) {
+			flight.fail(step, err);
+			throw err;
+		}
+	}
+
 	async function subscribeOnChain(input: SubscribeInput) {
 		return input.chain === "monad"
 			? depositOnMonad(input)
@@ -312,7 +416,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		tick: 0,
 		connect: () => login(),
 		disconnect: () => logout(),
-		registerAgent: stub("registerAgent"),
+		registerAgent: (input) => {
+			// The in-flight card carries the failure; this is for devtools.
+			registerAgentOnChain(input).catch((err) =>
+				console.error("registerAgent failed:", err),
+			);
+		},
 		setAllowance: stub("setAllowance"),
 		pauseAgent: stub("pauseAgent"),
 		resumeAgent: stub("resumeAgent"),

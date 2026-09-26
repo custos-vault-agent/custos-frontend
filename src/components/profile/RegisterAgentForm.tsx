@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { zeroAddress } from "viem";
 import { useReadContract } from "wagmi";
 import {
 	Field,
@@ -44,6 +45,12 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 	const minSeed = minSeedRaw === undefined ? null : fromTokenUnits(minSeedRaw);
 
 	const addressValid = ADDRESS.test(address.trim());
+	// The registry stores the name as bytes32, so the limit is 32 bytes and not
+	// 32 characters.
+	const nameTooLong = new TextEncoder().encode(name.trim()).length > 32;
+	// No allowlisted yield source means the only valid value is address(0), so
+	// the toggle would promise something registerAgent would reject.
+	const yieldAvailable = CONTRACTS.yieldSource !== zeroAddress;
 	const seedNumber = Number(seedAmount) || 0;
 	const allowanceNumber = Number(allowance) || 0;
 	const feeRateBps = Math.round((Number(feeRatePercent) || 0) * 100);
@@ -64,6 +71,7 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 
 	const valid =
 		name.trim().length > 0 &&
+		!nameTooLong &&
 		addressValid &&
 		allowanceNumber > 0 &&
 		!seedTooSmall &&
@@ -94,10 +102,14 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 					</div>
 				</div>
 
-				<Field label="Agent name">
+				<Field
+					label="Agent name"
+					error={nameTooLong ? "Maximum is 32 bytes" : undefined}
+				>
 					<TextInput
 						value={name}
 						onChange={(e) => setName(e.target.value)}
+						invalid={nameTooLong}
 						placeholder="grid-bot-8"
 						maxLength={32}
 					/>
@@ -234,10 +246,14 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 				<label className="flex items-center gap-2 text-[17px]">
 					<input
 						type="checkbox"
-						checked={yieldEnabled}
+						checked={yieldEnabled && yieldAvailable}
+						disabled={!yieldAvailable}
 						onChange={(e) => setYieldEnabled(e.target.checked)}
 					/>
 					Deploy idle capital to yield (immutable)
+					{yieldAvailable ? null : (
+						<span className="text-[16px] text-dim">no source configured</span>
+					)}
 				</label>
 
 				<label className="flex items-center gap-2 text-[17px]">
