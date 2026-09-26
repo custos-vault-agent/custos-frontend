@@ -8,6 +8,7 @@ import { useAccount, usePublicClient, useWriteContract } from "wagmi";
 import { AgentVaultAbi } from "./abi/AgentVault";
 import { CustosCoreAbi } from "./abi/CustosCore";
 import { MockERC20Abi } from "./abi/MockERC20";
+import { NanSigilAbi } from "./abi/NanSigil";
 import {
 	type AuroraUsdc,
 	createAuroraRunner,
@@ -15,6 +16,7 @@ import {
 	vaultDepositRecipe,
 } from "./aurora";
 import { CONTRACTS, RESET_PERIOD_SECONDS, USDC_DECIMALS } from "./chain";
+import { pullAttestation } from "./nansigil";
 import { fetchAgents } from "./onchain";
 import { txErrorMessage } from "./txErrors";
 import type {
@@ -70,6 +72,8 @@ type StoreValue = {
 	connect: () => void;
 	disconnect: () => void;
 	registerAgent: (input: RegisterInput) => void;
+	/** Pull a signed Nansen profile for the connected wallet and relay it. */
+	claimNansenBadge: () => void;
 	setAllowance: (
 		id: string,
 		allowance: number,
@@ -397,6 +401,65 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		}
 	}
 
+	/** Badge: pull the signed profile, then relay it to NanSigil. Custos reads
+	 *  `latest(creator)`, so one claim covers every agent of this wallet. */
+	async function claimNansenBadgeOnChain() {
+		if (!address) throw new Error("connect a wallet first");
+		if (!publicClient) throw new Error("no public client");
+		if (CONTRACTS.nansigil === zeroAddress)
+			throw new Error("NanSigil is not configured for this deployment");
+
+		const flight = startFlight(
+			{
+				kind: "vault-config",
+				key: address,
+				agentId: "",
+				title: "Nansen badge",
+				amount: "",
+			},
+			[
+				{ id: "pull", label: "Pull signed profile", state: "active" },
+				{ id: "submit", label: "Relay to NanSigil", state: "pending" },
+			],
+		);
+		let step = 0;
+		try {
+			const attestation = await pullAttestation(address);
+			// An empty label means Nansen knows the wallet but gives it no badge.
+			// Submitting that costs gas and shows nothing, so stop here instead.
+			if (!attestation.label)
+				throw new Error("Nansen has no label for this wallet yet.");
+			flight.setStep(0, "done", attestation.label);
+			step = 1;
+			flight.setStep(1, "active");
+
+			const hash = await writeContractAsync({
+				address: CONTRACTS.nansigil,
+				abi: NanSigilAbi,
+				functionName: "submit",
+				args: [
+					attestation.wallet,
+					attestation.label,
+					attestation.pnl,
+					attestation.winRate,
+					BigInt(attestation.timestamp),
+					attestation.signature,
+				],
+			});
+			flight.setStep(1, "active", "confirming");
+			await publicClient.waitForTransactionReceipt({ hash });
+			flight.setStep(1, "done");
+
+			// The chip reads `latest` through wagmi, the label through the indexer.
+			await queryClient.invalidateQueries({ queryKey: ["readContract"] });
+			await queryClient.invalidateQueries({ queryKey: ["agents"] });
+			dismissInFlight(flight.id);
+		} catch (err) {
+			flight.fail(step, err);
+			throw err;
+		}
+	}
+
 	async function subscribeOnChain(input: SubscribeInput) {
 		return input.chain === "monad"
 			? depositOnMonad(input)
@@ -420,6 +483,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 			// The in-flight card carries the failure; this is for devtools.
 			registerAgentOnChain(input).catch((err) =>
 				console.error("registerAgent failed:", err),
+			);
+		},
+		claimNansenBadge: () => {
+			// The in-flight card carries the failure; this is for devtools.
+			claimNansenBadgeOnChain().catch((err) =>
+				console.error("claimNansenBadge failed:", err),
 			);
 		},
 		setAllowance: stub("setAllowance"),

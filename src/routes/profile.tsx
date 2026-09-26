@@ -1,12 +1,17 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { zeroAddress } from "viem";
+import { useReadContract } from "wagmi";
 import { AgentSealBadge } from "#/components/AgentSealBadge";
 import { EditAgentPanel } from "#/components/profile/EditAgentPanel";
 import { RegisterAgentForm } from "#/components/profile/RegisterAgentForm";
 import { Button, Card, Empty, Label } from "#/components/ui/primitives";
 import { Sigil } from "#/components/ui/Sigil";
 import { RedeemPanel } from "#/components/vault/RedeemPanel";
-import { formatAmount, shortAddress } from "#/lib/format";
+import { NanSigilAbi } from "#/lib/abi/NanSigil";
+import { CONTRACTS } from "#/lib/chain";
+import { formatAmount, formatDay, shortAddress } from "#/lib/format";
+import { ATTESTATION_ENABLED } from "#/lib/nansigil";
 import { useStore } from "#/lib/store";
 
 export const Route = createFileRoute("/profile")({
@@ -29,8 +34,28 @@ function ProfilePage() {
 		agents,
 		pauseAgent,
 		resumeAgent,
+		claimNansenBadge,
+		inFlight,
 	} = useStore();
 	const [panel, setPanel] = useState<Panel>({ kind: "none" });
+
+	// The badge belongs to the wallet, not to an agent, so it is readable before
+	// the first agent exists. `latest` gives the time; the label comes from the
+	// indexer with the rest of the agent data.
+	const { data: latestAttestation } = useReadContract({
+		address: CONTRACTS.nansigil,
+		abi: NanSigilAbi,
+		functionName: "latest",
+		args: connectedAddress ? [connectedAddress as `0x${string}`] : undefined,
+		query: {
+			enabled: !!connectedAddress && CONTRACTS.nansigil !== zeroAddress,
+		},
+	});
+	const attestedAt = latestAttestation ? Number(latestAttestation[1]) : 0;
+	// `vault-config` is this action's kind and nothing else uses it yet.
+	const claiming = inFlight.some((e) => e.kind === "vault-config");
+	const badgeLabel =
+		myAgents.find((a) => a.nansen?.verified)?.nansen?.label ?? null;
 
 	const editing =
 		panel.kind === "edit"
@@ -56,7 +81,7 @@ function ProfilePage() {
 	return (
 		<div className="flex flex-col gap-4 lg:flex-row lg:items-start">
 			<div className="min-w-0 space-y-6 lg:flex-1">
-				<div className="flex items-center gap-3">
+				<div className="flex flex-wrap items-center gap-3">
 					<Sigil address={connectedAddress ?? "0x0"} size="md" tone="owner" />
 					<div>
 						<div className="text-[21px]">
@@ -64,6 +89,33 @@ function ProfilePage() {
 						</div>
 						<Label>Connected wallet</Label>
 					</div>
+
+					{CONTRACTS.nansigil === zeroAddress ? null : (
+						<div className="ml-auto text-right">
+							<div className="text-[17px] text-dim">
+								{attestedAt === 0
+									? "No Nansen badge yet"
+									: `Nansen badge · ${badgeLabel ?? "attested"} ${formatDay(attestedAt * 1000)}`}
+							</div>
+							<Button
+								size="sm"
+								className="mt-1"
+								disabled={!ATTESTATION_ENABLED || claiming}
+								onClick={claimNansenBadge}
+							>
+								{claiming
+									? "Claiming…"
+									: attestedAt === 0
+										? "Get Nansen badge"
+										: "Refresh badge"}
+							</Button>
+							{ATTESTATION_ENABLED ? null : (
+								<div className="mt-1 text-[16px] text-dim">
+									attestation service not configured
+								</div>
+							)}
+						</div>
+					)}
 				</div>
 
 				<div>
