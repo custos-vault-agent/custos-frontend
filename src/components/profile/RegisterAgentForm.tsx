@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useReadContract } from "wagmi";
 import {
 	Field,
 	LockedValue,
@@ -8,10 +9,11 @@ import {
 } from "#/components/ui/fields";
 import { Button, Card, CardHeader, Label } from "#/components/ui/primitives";
 import { Sigil } from "#/components/ui/Sigil";
+import { CustosCoreAbi } from "#/lib/abi/CustosCore";
+import { CONTRACTS, fromTokenUnits } from "#/lib/chain";
 import { shortAddress } from "#/lib/format";
 import { useStore } from "#/lib/store";
 import type { ResetPeriod } from "#/lib/types";
-import { MIN_SEED } from "#/lib/chain";
 
 const PERIODS: ResetPeriod[] = ["daily", "weekly", "monthly", "never"];
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -22,7 +24,7 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 	const [name, setName] = useState("");
 	const [description, setDescription] = useState("");
 	const [address, setAddress] = useState("");
-	const [seedAmount, setSeedAmount] = useState(String(MIN_SEED));
+	const [seedAmount, setSeedAmount] = useState("");
 	const [allowance, setAllowance] = useState("");
 	const [period, setPeriod] = useState<ResetPeriod>("daily");
 	const [feeRatePercent, setFeeRatePercent] = useState("10");
@@ -31,6 +33,15 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 	const [yieldEnabled, setYieldEnabled] = useState(true);
 	const [isPublic, setIsPublic] = useState(true);
 	const [touched, setTouched] = useState(false);
+
+	// The floor lives in CustosCore.minSeed and the upgrade authority can move it,
+	// so read it instead of shipping a copy in the bundle. `null` = not read yet.
+	const { data: minSeedRaw } = useReadContract({
+		address: CONTRACTS.custosCore,
+		abi: CustosCoreAbi,
+		functionName: "minSeed",
+	});
+	const minSeed = minSeedRaw === undefined ? null : fromTokenUnits(minSeedRaw);
 
 	const addressValid = ADDRESS.test(address.trim());
 	const seedNumber = Number(seedAmount) || 0;
@@ -41,7 +52,10 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 		(Number(maxUtilizationPercent) || 0) * 100,
 	);
 
-	const seedTooSmall = seedNumber < MIN_SEED;
+	// registerAgent rejects a zero seed whatever minSeed is (AgentRegistry L1).
+	const seedTooSmall =
+		seedNumber <= 0 || (minSeed !== null && seedNumber < minSeed);
+	const seedError = seedAmount !== "" && seedTooSmall;
 	const feeOutOfRange = feeRateBps > 5000;
 	const drawdownOutOfRange =
 		maxDrawdownBps !== 0 && (maxDrawdownBps < 100 || maxDrawdownBps > 5000);
@@ -125,7 +139,13 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 				<Field
 					label="Seed deposit"
 					hint="locked permanently — this is your skin in the game"
-					error={seedTooSmall ? `Minimum is ${MIN_SEED} USDC` : undefined}
+					error={
+						seedError
+							? minSeed
+								? `Minimum is ${minSeed} USDC`
+								: "Enter an amount above 0"
+							: undefined
+					}
 				>
 					<TextInput
 						inputMode="decimal"
@@ -133,7 +153,7 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 						onChange={(e) =>
 							setSeedAmount(e.target.value.replace(/[^0-9.]/g, ""))
 						}
-						invalid={seedTooSmall}
+						invalid={seedError}
 						className="tnum"
 					/>
 				</Field>
