@@ -39,6 +39,18 @@ export const monadChain = defineChain({
 	rpcUrls: {
 		default: { http: [required("VITE_RPC_URL", import.meta.env.VITE_RPC_URL)] },
 	},
+	// Without this every publicClient.multicall throws ChainDoesNotSupportContract,
+	// which empties the whole agent list. The canonical Multicall3 deployment is at
+	// the same address on Monad as elsewhere; VITE_MULTICALL3 overrides it.
+	contracts: {
+		multicall3: {
+			address: address(
+				"VITE_MULTICALL3",
+				import.meta.env.VITE_MULTICALL3,
+				"0xcA11bde05977b3631167028862bE2a173976CA11",
+			),
+		},
+	},
 });
 
 export const CONTRACTS = {

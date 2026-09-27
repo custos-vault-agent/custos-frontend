@@ -11,7 +11,7 @@ import {
 import { Button, Card, CardHeader, Label } from "#/components/ui/primitives";
 import { Sigil } from "#/components/ui/Sigil";
 import { CustosCoreAbi } from "#/lib/abi/CustosCore";
-import { CONTRACTS, fromTokenUnits } from "#/lib/chain";
+import { CONTRACTS, fromTokenUnits, USDC_DECIMALS } from "#/lib/chain";
 import { shortAddress } from "#/lib/format";
 import { useStore } from "#/lib/store";
 import type { ResetPeriod } from "#/lib/types";
@@ -59,9 +59,12 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 		(Number(maxUtilizationPercent) || 0) * 100,
 	);
 
-	// registerAgent rejects a zero seed whatever minSeed is (AgentRegistry L1).
+	// Compare in raw units, the way the contract does. A seed below one raw unit
+	// rounds to zero on the way out, and registerAgent rejects a zero seed
+	// whatever minSeed is (AgentRegistry L1).
+	const seedRaw = BigInt(Math.round(seedNumber * 10 ** USDC_DECIMALS));
 	const seedTooSmall =
-		seedNumber <= 0 || (minSeed !== null && seedNumber < minSeed);
+		seedRaw < 1n || (minSeedRaw !== undefined && seedRaw < minSeedRaw);
 	const seedError = seedAmount !== "" && seedTooSmall;
 	const feeOutOfRange = feeRateBps > 5000;
 	const drawdownOutOfRange =
@@ -155,7 +158,7 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 						seedError
 							? minSeed
 								? `Minimum is ${minSeed} USDC`
-								: "Enter an amount above 0"
+								: "Enter at least 0.000001 USDC"
 							: undefined
 					}
 				>

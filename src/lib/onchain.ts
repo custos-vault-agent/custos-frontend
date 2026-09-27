@@ -1,5 +1,5 @@
 import type { PublicClient } from "viem";
-import { zeroAddress } from "viem";
+import { hexToString, zeroAddress } from "viem";
 import { AgentVaultAbi } from "./abi/AgentVault";
 import { CustosCoreAbi } from "./abi/CustosCore";
 import { NanSigilAbi } from "./abi/NanSigil";
@@ -14,6 +14,12 @@ import { fetchIndexedAgents } from "./indexer";
 import type { Agent, AgentStatus, NansenBadge } from "./types";
 
 const DEAD_ADDRESS = "0x0000000000000000000000000000000000000001" as const;
+
+/** The registry stores a name as bytes32, right-padded with zero bytes. Both the
+ *  chain and the indexer serve that raw value, so decode it here, once. */
+function decodeName(name: `0x${string}`): string {
+	return hexToString(name, { size: 32 }).replace(/\0+$/, "");
+}
 
 const STATUS_BY_CODE: Record<number, AgentStatus> = {
 	1: "active",
@@ -265,7 +271,7 @@ export async function fetchAgents(
 
 		const agent: Agent = {
 			id: ids[i],
-			name: r.name, // bytes32 — decoded by callers that need display text; see Task 7 note
+			name: decodeName(r.name),
 			// Plaintext lives only in the AgentRegistered log (D9); the indexer keeps it.
 			description: descriptionById.get(ids[i].toLowerCase()) ?? "",
 			agentAddress: r.wallet,
