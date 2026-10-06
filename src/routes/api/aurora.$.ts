@@ -20,7 +20,9 @@ async function forward({
 		return new Response("AURORA_API_KEY not configured", { status: 503 });
 
 	const url = new URL(request.url);
-	const upstream = `${UPSTREAM}/${params._splat ?? ""}${url.search}`;
+	// The SDK keeps the baseUrl path, so the splat already starts with api/v1.
+	const path = (params._splat ?? "").replace(/^api\/v1\//, "");
+	const upstream = `${UPSTREAM}/${path}${url.search}`;
 	const res = await fetch(upstream, {
 		method: request.method,
 		headers: { "content-type": "application/json", "x-api-key": key },
