@@ -15,7 +15,20 @@ import {
 	type WalletConnector,
 } from "@aurora-is-near/intents-connect";
 import { evm } from "@aurora-is-near/intents-connect-wallet/evm";
-import type { Address } from "viem";
+import type { Address, Chain } from "viem";
+import {
+	arbitrum,
+	avalanche,
+	base,
+	bsc,
+	gnosis,
+	mainnet,
+	optimism,
+	polygon,
+	scroll,
+	xLayer,
+} from "viem/chains";
+import { monadChain } from "#/lib/chain";
 
 export const AURORA_ENABLED = import.meta.env.VITE_AURORA_ENABLED === "true";
 
@@ -33,6 +46,21 @@ export const CHAIN_LABEL: Record<string, string> = {
 	scroll: "Scroll",
 	monad: "Monad",
 };
+/** Static: the wagmi config is built at module load and cannot await the API. */
+export const ORIGIN_CHAINS: Record<string, Chain> = {
+	eth: mainnet,
+	arb: arbitrum,
+	base,
+	bsc,
+	op: optimism,
+	pol: polygon,
+	avax: avalanche,
+	gnosis,
+	xlayer: xLayer,
+	scroll,
+};
+export const chainForSlug = (slug: string): Chain | undefined =>
+	slug === "monad" ? monadChain : ORIGIN_CHAINS[slug];
 export const chainLabel = (slug: string) => CHAIN_LABEL[slug] ?? slug;
 const API_BASE = "https://intents-connect-api.aurora.dev/api/v1";
 const DESTINATION_CHAIN = "monad";

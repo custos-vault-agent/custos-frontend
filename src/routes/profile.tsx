@@ -9,7 +9,7 @@ import { Button, Card, Empty, Label } from "#/components/ui/primitives";
 import { Sigil } from "#/components/ui/Sigil";
 import { RedeemPanel } from "#/components/vault/RedeemPanel";
 import { NanSigilAbi } from "#/lib/abi/NanSigil";
-import { CONTRACTS } from "#/lib/chain";
+import { CONTRACTS, monadChain } from "#/lib/chain";
 import { formatAmount, formatDay, shortAddress } from "#/lib/format";
 import { ATTESTATION_ENABLED } from "#/lib/nansigil";
 import { useStore } from "#/lib/store";
@@ -46,6 +46,7 @@ function ProfilePage() {
 		address: CONTRACTS.nansigil,
 		abi: NanSigilAbi,
 		functionName: "latest",
+		chainId: monadChain.id,
 		args: connectedAddress ? [connectedAddress as `0x${string}`] : undefined,
 		query: {
 			enabled: !!connectedAddress && CONTRACTS.nansigil !== zeroAddress,

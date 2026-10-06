@@ -4,7 +4,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { createContext, useContext, useMemo, useState } from "react";
 import { stringToHex, zeroAddress } from "viem";
-import { useAccount, usePublicClient, useWriteContract } from "wagmi";
+import {
+	useAccount,
+	usePublicClient,
+	useSwitchChain,
+	useWriteContract,
+} from "wagmi";
 import { AgentVaultAbi } from "./abi/AgentVault";
 import { CustosCoreAbi } from "./abi/CustosCore";
 import { MockERC20Abi } from "./abi/MockERC20";
@@ -15,7 +20,12 @@ import {
 	evmConnector,
 	vaultDepositRecipe,
 } from "./aurora";
-import { CONTRACTS, RESET_PERIOD_SECONDS, USDC_DECIMALS } from "./chain";
+import {
+	CONTRACTS,
+	monadChain,
+	RESET_PERIOD_SECONDS,
+	USDC_DECIMALS,
+} from "./chain";
 import { pullAttestation } from "./nansigil";
 import { fetchAgents } from "./onchain";
 import { txErrorMessage } from "./txErrors";
@@ -102,8 +112,9 @@ const StoreContext = createContext<StoreValue | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
 	const { ready, authenticated, login, logout } = usePrivy();
-	const { address, connector } = useAccount();
-	const publicClient = usePublicClient();
+	const { address, connector, chainId: walletChainId } = useAccount();
+	const publicClient = usePublicClient({ chainId: monadChain.id });
+	const { switchChainAsync } = useSwitchChain();
 	const { writeContractAsync } = useWriteContract();
 	const queryClient = useQueryClient();
 
@@ -195,6 +206,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		return { id, setStep, fail };
 	}
 
+	// A previous Aurora deposit can leave the wallet on an origin chain.
+	async function ensureMonad() {
+		if (walletChainId !== monadChain.id)
+			await switchChainAsync({ chainId: monadChain.id });
+	}
+
 	/** Same-chain path: approve USDC to the vault, then an ordinary ERC-4626 deposit. */
 	async function depositOnMonad(input: SubscribeInput) {
 		if (!address) throw new Error("connect a wallet first");
@@ -223,6 +240,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		);
 		let step = 0;
 		try {
+			await ensureMonad();
 			const approveHash = await writeContractAsync({
 				address: CONTRACTS.usdc,
 				abi: MockERC20Abi,
@@ -359,6 +377,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		);
 		let step = 0;
 		try {
+			await ensureMonad();
 			const approveHash = await writeContractAsync({
 				address: CONTRACTS.usdc,
 				abi: MockERC20Abi,
@@ -424,6 +443,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		);
 		let step = 0;
 		try {
+			await ensureMonad();
 			const attestation = await pullAttestation(address);
 			// An empty label means Nansen knows the wallet but gives it no badge.
 			// Submitting that costs gas and shows nothing, so stop here instead.

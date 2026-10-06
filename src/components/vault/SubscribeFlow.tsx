@@ -1,6 +1,8 @@
+import { EVM_CHAIN_IDS } from "@aurora-is-near/intents-connect";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { useAccount, useReadContract } from "wagmi";
+import { formatUnits } from "viem";
+import { useAccount, useReadContract, useSwitchChain } from "wagmi";
 import { Field, Select, TextInput } from "#/components/ui/fields";
 import {
 	Button,
@@ -12,8 +14,9 @@ import {
 import { RouteStepper } from "#/components/ui/route";
 import { MockERC20Abi } from "#/lib/abi/MockERC20";
 import { AURORA_ENABLED, chainLabel, fetchAuroraUsdc } from "#/lib/aurora";
-import { CONTRACTS, USDC_DECIMALS } from "#/lib/chain";
+import { CONTRACTS, monadChain, USDC_DECIMALS } from "#/lib/chain";
 import { useStore } from "#/lib/store";
+import { txErrorMessage } from "#/lib/txErrors";
 
 /**
  * Reuses the deposit route's RouteStepper on purpose — same underlying
@@ -30,7 +33,10 @@ export function SubscribeFlow({
 	const { agents, subscribe, inFlight, dismissInFlight } = useStore();
 	const agent = agents.find((a) => a.id === agentId);
 
-	const { address } = useAccount();
+	const { address, chainId: walletChainId } = useAccount();
+	const { switchChainAsync } = useSwitchChain();
+	const [switching, setSwitching] = useState(false);
+	const [switchError, setSwitchError] = useState<string | null>(null);
 	// Monad is always available (a plain deposit from the connected wallet). Other
 	// chains come from Aurora's supported list and only when the integration is on.
 	const { data: aurora } = useQuery({
@@ -51,12 +57,27 @@ export function SubscribeFlow({
 		: ["monad"];
 	const [chain, setChain] = useState("monad");
 	const [amount, setAmount] = useState("500");
+	const origin = aurora?.origins.find((t) => t.blockchain === chain);
+	const token =
+		chain === "monad"
+			? {
+					address: CONTRACTS.usdc,
+					decimals: USDC_DECIMALS,
+					chainId: monadChain.id,
+				}
+			: origin && {
+					address: origin.contractAddress as `0x${string}`,
+					decimals: origin.decimals,
+					chainId: EVM_CHAIN_IDS[chain as keyof typeof EVM_CHAIN_IDS],
+				};
+	const targetChainId = token?.chainId;
 	const { data: usdcBalance } = useReadContract({
-		address: CONTRACTS.usdc,
+		address: token?.address,
 		abi: MockERC20Abi,
 		functionName: "balanceOf",
 		args: address ? [address] : undefined,
-		query: { enabled: !!address && chain === "monad", refetchInterval: 10_000 },
+		chainId: token?.chainId,
+		query: { enabled: !!address && !!token, refetchInterval: 10_000 },
 	});
 	const [landed, setLanded] = useState(false);
 
@@ -80,18 +101,45 @@ export function SubscribeFlow({
 		if (flight?.status === "failed") wasFlying.current = false;
 	}, [flight]);
 
+	// The deposit is signed on the origin chain (or Monad), so put the wallet there first.
+	async function start() {
+		if (!targetChainId) return;
+		setSwitchError(null);
+		if (walletChainId !== targetChainId) {
+			setSwitching(true);
+			try {
+				await switchChainAsync({ chainId: targetChainId });
+			} catch (err) {
+				setSwitchError(txErrorMessage(err));
+				return;
+			} finally {
+				setSwitching(false);
+			}
+		}
+		subscribe({
+			agentId,
+			chain,
+			symbol: "USDC",
+			amount: amountNumber,
+			aurora:
+				origin && aurora?.destination
+					? { origin, destination: aurora.destination }
+					: undefined,
+		});
+	}
+
 	if (!agent) return null;
 
 	const blocked = agent.status !== "active";
 	const amountNumber = Number(amount) || 0;
-	// Only the Monad balance is readable from here; Aurora reports origin-side
-	// shortfalls itself when the transfer is attempted.
 	const balance =
-		chain === "monad" && usdcBalance !== undefined
-			? Number(usdcBalance) / 10 ** USDC_DECIMALS
+		token && usdcBalance !== undefined
+			? Number(formatUnits(usdcBalance, token.decimals))
 			: null;
 	const insufficient = balance !== null && amountNumber > balance;
-	const origin = aurora?.origins.find((t) => t.blockchain === chain);
+	const depositSent = flight?.steps?.some(
+		(s) => s.id === "deposit" && s.state === "done",
+	);
 
 	return (
 		<Card className="animate-enter">
@@ -130,13 +178,34 @@ export function SubscribeFlow({
 							>
 								{flight.reason ?? "Transaction failed."}
 							</p>
-							<Button
-								variant="ghost"
-								className="mt-2 w-full"
-								onClick={() => dismissInFlight(flight.id)}
-							>
-								Back
-							</Button>
+							{depositSent ? (
+								<p className="mt-2 text-[17px] text-dim">
+									The transfer already left your wallet and Aurora is still
+									settling it. Don't send it again.
+								</p>
+							) : null}
+							<div className="mt-2 flex gap-2">
+								<Button
+									variant="ghost"
+									className="w-full"
+									onClick={() => dismissInFlight(flight.id)}
+								>
+									Back
+								</Button>
+								{depositSent ? null : (
+									<Button
+										variant="solid"
+										className="w-full"
+										disabled={switching}
+										onClick={() => {
+											dismissInFlight(flight.id);
+											void start();
+										}}
+									>
+										Try again
+									</Button>
+								)}
+							</div>
 						</>
 					) : (
 						<p className="mt-2 text-[16px] text-dim">
@@ -185,7 +254,11 @@ export function SubscribeFlow({
 								? "USDC"
 								: `bal ${balance.toLocaleString("en-US")} USDC`
 						}
-						error={insufficient ? "Insufficient USDC on Monad" : undefined}
+						error={
+							insufficient
+								? `Insufficient USDC on ${chainLabel(chain)}`
+								: undefined
+						}
 					>
 						<TextInput
 							inputMode="decimal"
@@ -216,23 +289,18 @@ export function SubscribeFlow({
 						disabled={
 							amountNumber <= 0 ||
 							insufficient ||
+							switching ||
 							(chain !== "monad" && (!origin || !aurora?.destination))
 						}
-						onClick={() =>
-							subscribe({
-								agentId,
-								chain,
-								symbol: "USDC",
-								amount: amountNumber,
-								aurora:
-									origin && aurora?.destination
-										? { origin, destination: aurora.destination }
-										: undefined,
-							})
-						}
+						onClick={start}
 					>
 						{chain === "monad" ? "Deposit" : "Send intent"}
 					</Button>
+					{switchError ? (
+						<p className="border-2 border-sell px-2 py-1 text-[17px] text-sell">
+							{switchError}
+						</p>
+					) : null}
 				</div>
 			)}
 		</Card>

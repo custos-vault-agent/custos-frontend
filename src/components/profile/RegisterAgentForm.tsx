@@ -11,7 +11,12 @@ import {
 import { Button, Card, CardHeader, Label } from "#/components/ui/primitives";
 import { Sigil } from "#/components/ui/Sigil";
 import { CustosCoreAbi } from "#/lib/abi/CustosCore";
-import { CONTRACTS, fromTokenUnits, USDC_DECIMALS } from "#/lib/chain";
+import {
+	CONTRACTS,
+	fromTokenUnits,
+	monadChain,
+	USDC_DECIMALS,
+} from "#/lib/chain";
 import { shortAddress } from "#/lib/format";
 import { useStore } from "#/lib/store";
 import type { ResetPeriod } from "#/lib/types";
@@ -41,6 +46,7 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 		address: CONTRACTS.custosCore,
 		abi: CustosCoreAbi,
 		functionName: "minSeed",
+		chainId: monadChain.id,
 	});
 	const minSeed = minSeedRaw === undefined ? null : fromTokenUnits(minSeedRaw);
 
