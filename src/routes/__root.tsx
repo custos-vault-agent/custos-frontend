@@ -10,9 +10,9 @@ import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 
 import { TopBar } from "#/components/TopBar";
 import { Button, Empty } from "#/components/ui/primitives";
-import { Web3Provider } from "#/lib/web3Provider";
 import { StoreProvider } from "#/lib/store";
 import { themeInitScript } from "#/lib/theme";
+import { Web3Provider } from "#/lib/web3Provider";
 import appCss from "../styles.css?url";
 
 export const Route = createRootRoute({
