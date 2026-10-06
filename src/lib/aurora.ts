@@ -62,7 +62,8 @@ export const ORIGIN_CHAINS: Record<string, Chain> = {
 export const chainForSlug = (slug: string): Chain | undefined =>
 	slug === "monad" ? monadChain : ORIGIN_CHAINS[slug];
 export const chainLabel = (slug: string) => CHAIN_LABEL[slug] ?? slug;
-const API_BASE = "https://intents-connect-api.aurora.dev/api/v1";
+// Origin only: the SDK appends /api/v1 itself, our own fetch spells it out.
+const API_ORIGIN = "https://intents-connect-api.aurora.dev";
 const DESTINATION_CHAIN = "monad";
 
 export type AuroraUsdc = SupportedToken & {
@@ -77,7 +78,7 @@ export async function fetchAuroraUsdc(): Promise<{
 	origins: AuroraUsdc[];
 	destination: AuroraUsdc | null;
 }> {
-	const res = await fetch(`${API_BASE}/supported_tokens`);
+	const res = await fetch(`${API_ORIGIN}/api/v1/supported_tokens`);
 	if (!res.ok) throw new Error(`aurora supported_tokens ${res.status}`);
 	// Response is `{ result: { in, out } }`: `in` = sendable origins, `out` = receivable destinations.
 	const { result } = (await res.json()) as {
@@ -161,7 +162,7 @@ export function createAuroraRunner(
 ) {
 	return createExecutionRunner({
 		api: createIntentsConnectApi({
-			baseUrl: API_BASE,
+			baseUrl: API_ORIGIN,
 			apiKeyProxyUrl: "/api/aurora",
 		}),
 		wallet: connector,

@@ -6,7 +6,7 @@ import "@tanstack/react-start";
 // sends create calls here; we add `x-api-key` and forward, so the key never
 // ships to the browser. Only POSTs to /executions/* need the key; everything
 // else the SDK calls the public API directly.
-const UPSTREAM = "https://intents-connect-api.aurora.dev/api/v1";
+const UPSTREAM = "https://intents-connect-api.aurora.dev";
 
 async function forward({
 	request,
@@ -20,9 +20,8 @@ async function forward({
 		return new Response("AURORA_API_KEY not configured", { status: 503 });
 
 	const url = new URL(request.url);
-	// The SDK keeps the baseUrl path, so the splat already starts with api/v1.
-	const path = (params._splat ?? "").replace(/^api\/v1\//, "");
-	const upstream = `${UPSTREAM}/${path}${url.search}`;
+	// The splat already carries the api/v1 prefix the SDK adds.
+	const upstream = `${UPSTREAM}/${params._splat ?? ""}${url.search}`;
 	const res = await fetch(upstream, {
 		method: request.method,
 		headers: { "content-type": "application/json", "x-api-key": key },
