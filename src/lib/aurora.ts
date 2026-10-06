@@ -21,17 +21,17 @@ export const AURORA_ENABLED = import.meta.env.VITE_AURORA_ENABLED === "true";
 
 /** Display names for the chains Aurora reports as `blockchain` slugs. */
 export const CHAIN_LABEL: Record<string, string> = {
-	monad: "Monad",
-	base: "Base",
-	arbitrum: "Arbitrum",
 	eth: "Ethereum",
-	ethereum: "Ethereum",
-	optimism: "Optimism",
-	polygon: "Polygon",
+	arb: "Arbitrum",
+	base: "Base",
 	bsc: "BNB Chain",
-	avalanche: "Avalanche",
+	op: "Optimism",
+	pol: "Polygon",
+	avax: "Avalanche",
 	gnosis: "Gnosis",
+	xlayer: "X Layer",
 	scroll: "Scroll",
+	monad: "Monad",
 };
 export const chainLabel = (slug: string) => CHAIN_LABEL[slug] ?? slug;
 const API_BASE = "https://intents-connect-api.aurora.dev/api/v1";
@@ -51,19 +51,25 @@ export async function fetchAuroraUsdc(): Promise<{
 }> {
 	const res = await fetch(`${API_BASE}/supported_tokens`);
 	if (!res.ok) throw new Error(`aurora supported_tokens ${res.status}`);
-	const tokens = (await res.json()) as SupportedToken[];
-	const usdc = tokens.filter(
-		(t): t is AuroraUsdc =>
-			t.symbol === "USDC" &&
-			!!t.contractAddress &&
-			!!t.assetId &&
-			!!t.blockchain &&
-			typeof t.decimals === "number" &&
-			t.blockchain in EVM_CHAIN_IDS,
-	);
+	// Response is `{ result: { in, out } }`: `in` = sendable origins, `out` = receivable destinations.
+	const { result } = (await res.json()) as {
+		result?: { in?: SupportedToken[]; out?: SupportedToken[] };
+	};
+	const isUsdc = (t: SupportedToken): t is AuroraUsdc =>
+		t.symbol === "USDC" &&
+		!!t.contractAddress &&
+		!!t.assetId &&
+		!!t.blockchain &&
+		typeof t.decimals === "number" &&
+		t.blockchain in EVM_CHAIN_IDS;
 	return {
-		origins: usdc.filter((t) => t.blockchain !== DESTINATION_CHAIN),
-		destination: usdc.find((t) => t.blockchain === DESTINATION_CHAIN) ?? null,
+		origins: (result?.in ?? [])
+			.filter(isUsdc)
+			.filter((t) => t.blockchain !== DESTINATION_CHAIN),
+		destination:
+			(result?.out ?? [])
+				.filter(isUsdc)
+				.find((t) => t.blockchain === DESTINATION_CHAIN) ?? null,
 	};
 }
 
