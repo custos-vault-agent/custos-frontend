@@ -163,7 +163,8 @@ export function createAuroraRunner(
 	return createExecutionRunner({
 		api: createIntentsConnectApi({
 			baseUrl: API_ORIGIN,
-			apiKeyProxyUrl: "/api/aurora",
+			// The SDK resolves paths with `new URL(path, proxy)`, so it must be absolute.
+			apiKeyProxyUrl: new URL("/api/aurora", window.location.origin).href,
 		}),
 		wallet: connector,
 		plugins: { evm },
