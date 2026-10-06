@@ -39,7 +39,11 @@ export function SubscribeFlow({
 	const [switchError, setSwitchError] = useState<string | null>(null);
 	// Monad is always available (a plain deposit from the connected wallet). Other
 	// chains come from Aurora's supported list and only when the integration is on.
-	const { data: aurora } = useQuery({
+	const {
+		data: aurora,
+		isPending: auroraPending,
+		isError: auroraError,
+	} = useQuery({
 		queryKey: ["aurora-usdc"],
 		queryFn: fetchAuroraUsdc,
 		enabled: AURORA_ENABLED,
@@ -52,6 +56,8 @@ export function SubscribeFlow({
 		AURORA_ENABLED &&
 		!!aurora?.destination &&
 		(aurora?.origins.length ?? 0) > 0;
+	// A disabled query stays pending forever, so gate on AURORA_ENABLED.
+	const auroraLoading = AURORA_ENABLED && auroraPending;
 	const chains = crossChain
 		? ["monad", ...(aurora?.origins ?? []).map((t) => t.blockchain)]
 		: ["monad"];
@@ -71,7 +77,7 @@ export function SubscribeFlow({
 					chainId: EVM_CHAIN_IDS[chain as keyof typeof EVM_CHAIN_IDS],
 				};
 	const targetChainId = token?.chainId;
-	const { data: usdcBalance } = useReadContract({
+	const { data: usdcBalance, isLoading: balanceLoading } = useReadContract({
 		address: token?.address,
 		abi: MockERC20Abi,
 		functionName: "balanceOf",
@@ -227,16 +233,27 @@ export function SubscribeFlow({
 					<Field
 						label="Source chain"
 						hint={
-							!crossChain
-								? "Monad only"
-								: chain === "monad"
-									? undefined
-									: "via Aurora Intents"
+							auroraLoading ? (
+								<>
+									loading chains
+									<span className="ml-1 inline-block animate-blink text-accent">
+										█
+									</span>
+								</>
+							) : crossChain ? (
+								chain === "monad" ? undefined : (
+									"via Aurora Intents"
+								)
+							) : auroraError ? (
+								"cross-chain unavailable"
+							) : (
+								"Monad only"
+							)
 						}
 					>
 						<Select
 							value={chain}
-							disabled={!crossChain}
+							disabled={!crossChain || auroraLoading}
 							onChange={(e) => setChain(e.target.value)}
 						>
 							{chains.map((option) => (
@@ -250,9 +267,18 @@ export function SubscribeFlow({
 					<Field
 						label="Amount"
 						hint={
-							balance === null
-								? "USDC"
-								: `bal ${balance.toLocaleString("en-US")} USDC`
+							balance !== null ? (
+								`bal ${balance.toLocaleString("en-US")} USDC`
+							) : balanceLoading ? (
+								<>
+									checking balance
+									<span className="ml-1 inline-block animate-blink text-accent">
+										█
+									</span>
+								</>
+							) : (
+								"USDC"
+							)
 						}
 						error={
 							insufficient
