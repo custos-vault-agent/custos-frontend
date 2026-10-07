@@ -190,13 +190,21 @@ export function SubscribeFlow({
 									settling it. Don't send it again.
 								</p>
 							) : null}
+							{depositSent ? null : (
+								<p className="mt-2 text-[16px] text-dim">
+									Closing keeps it under Activity, where you can continue it.
+								</p>
+							)}
 							<div className="mt-2 flex gap-2">
+								{/* Closing must not delete the record: Activity is where it resumes. */}
 								<Button
 									variant="ghost"
 									className="w-full"
-									onClick={() => dismissInFlight(flight.id)}
+									onClick={
+										depositSent ? () => dismissInFlight(flight.id) : onClose
+									}
 								>
-									Back
+									{depositSent ? "Dismiss" : "Close"}
 								</Button>
 								{depositSent ? null : (
 									<Button

@@ -35,3 +35,13 @@ export function parse(raw: string | null, now: number): ActivityEntry[] {
 		return [];
 	}
 }
+
+/** A subscribe can run again while its deposit has not landed. Aurora is excluded:
+ *  its transfer may already have left the wallet and we cannot continue it. */
+export function isResumable(entry: ActivityEntry): boolean {
+	return (
+		entry.kind === "subscribe" &&
+		entry.resume?.chain === "monad" &&
+		!entry.steps?.some((s) => s.id === "deposit" && s.state === "done")
+	);
+}

@@ -33,7 +33,7 @@ import {
 	RESET_PERIOD_SECONDS,
 	USDC_DECIMALS,
 } from "./chain";
-import { parse, serialize, storageKey } from "./inflight";
+import { isResumable, parse, serialize, storageKey } from "./inflight";
 import { pullAttestation } from "./nansigil";
 import { fetchAgents } from "./onchain";
 import { txErrorMessage } from "./txErrors";
@@ -297,7 +297,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		try {
 			await ensureMonad();
 			const approved =
-				!!staleId &&
 				(await publicClient.readContract({
 					address: CONTRACTS.usdc,
 					abi: MockERC20Abi,
@@ -558,11 +557,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 			: depositViaAurora(input);
 	}
 
+	// A flight this session still drives would start a second deposit.
 	const canResume = (e: ActivityEntry) =>
-		e.kind === "subscribe" &&
-		e.resume?.chain === "monad" &&
-		!live.current.has(e.id) &&
-		!e.steps?.some((s) => s.id === "deposit" && s.state === "done");
+		isResumable(e) && !live.current.has(e.id);
 
 	const value: StoreValue = {
 		connected: ready && authenticated,
