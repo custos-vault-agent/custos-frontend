@@ -146,4 +146,6 @@ export type ActivityEntry = {
 	groupChildren?: ActivityEntry[];
 	/** Why a rejected action was rejected, e.g. "allowance exhausted". */
 	reason?: string;
+	/** What a subscribe needs to be run again from the Activity page. */
+	resume?: { chain: string; symbol: string; amount: number };
 };

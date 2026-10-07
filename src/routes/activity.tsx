@@ -1,7 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { ActivityRow } from "#/components/activity/ActivityRow";
-import { Card, CardHeader, Chip, Empty } from "#/components/ui/primitives";
+import {
+	Button,
+	Card,
+	CardHeader,
+	Chip,
+	Empty,
+} from "#/components/ui/primitives";
 import { useStore } from "#/lib/store";
 import type { ActivityEntry, ActivityKind } from "#/lib/types";
 
@@ -42,7 +48,7 @@ function matches(filter: Filter, entry: ActivityEntry): boolean {
 }
 
 function ActivityPage() {
-	const { inFlight, history } = useStore();
+	const { inFlight, history, canResume, resumeSubscribe } = useStore();
 	const [filter, setFilter] = useState<Filter>("all");
 
 	const rows = useMemo(
@@ -69,7 +75,22 @@ function ActivityPage() {
 				) : (
 					<div>
 						{inFlight.map((entry) => (
-							<ActivityRow key={entry.id} entry={entry} defaultOpen />
+							<ActivityRow
+								key={entry.id}
+								entry={entry}
+								defaultOpen
+								action={
+									canResume(entry) ? (
+										<Button
+											size="sm"
+											variant="primary"
+											onClick={() => resumeSubscribe(entry.id)}
+										>
+											Continue
+										</Button>
+									) : undefined
+								}
+							/>
 						))}
 					</div>
 				)}

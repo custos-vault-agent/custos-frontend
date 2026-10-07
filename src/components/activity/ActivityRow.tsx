@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useState } from "react";
 import type { PillTone } from "#/components/ui/primitives";
 import { cx, StatusPill } from "#/components/ui/primitives";
@@ -37,9 +38,11 @@ function Time({ timestamp }: { timestamp: number }) {
 export function ActivityRow({
 	entry,
 	defaultOpen = false,
+	action,
 }: {
 	entry: ActivityEntry;
 	defaultOpen?: boolean;
+	action?: ReactNode;
 }) {
 	const [open, setOpen] = useState(defaultOpen);
 
@@ -105,6 +108,8 @@ export function ActivityRow({
 				<span className="shrink-0">
 					<StatusPill tone={pill.tone}>{pill.label}</StatusPill>
 				</span>
+
+				{action ? <span className="shrink-0">{action}</span> : null}
 
 				{expandable ? (
 					<button

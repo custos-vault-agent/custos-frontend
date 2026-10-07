@@ -2,7 +2,14 @@ import type { Eip1193Provider } from "@aurora-is-near/intents-connect";
 import { usePrivy } from "@privy-io/react-auth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { createContext, useContext, useMemo, useState } from "react";
+import {
+	createContext,
+	useContext,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { stringToHex, zeroAddress } from "viem";
 import {
 	useAccount,
@@ -26,6 +33,7 @@ import {
 	RESET_PERIOD_SECONDS,
 	USDC_DECIMALS,
 } from "./chain";
+import { parse, serialize, storageKey } from "./inflight";
 import { pullAttestation } from "./nansigil";
 import { fetchAgents } from "./onchain";
 import { txErrorMessage } from "./txErrors";
@@ -97,6 +105,10 @@ type StoreValue = {
 	redeem: (input: RedeemInput) => void;
 	/** Clears a finished (failed) in-flight entry from the panel that shows it. */
 	dismissInFlight: (id: string) => void;
+	/** True when `resumeSubscribe` would act on this entry. */
+	canResume: (entry: ActivityEntry) => boolean;
+	/** Re-runs an interrupted Monad deposit, skipping an approve that already landed. */
+	resumeSubscribe: (id: string) => void;
 };
 
 const STUB_MESSAGE =
@@ -154,12 +166,44 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 	// until dismissed so the reason is readable, a successful one is removed
 	// the moment the receipt lands (that removal is what flips "landed").
 	const [inFlight, setInFlight] = useState<ActivityEntry[]>([]);
+	// Ids this session is actively driving; a stored entry from before a reload is not.
+	const live = useRef(new Set<string>());
+	const storeKey = connectedAddress
+		? storageKey(monadChain.id, connectedAddress)
+		: null;
+	const [loadedKey, setLoadedKey] = useState<string | null>(null);
+
+	useEffect(() => {
+		let stored: ActivityEntry[] = [];
+		if (storeKey) {
+			try {
+				stored = parse(localStorage.getItem(storeKey), Date.now());
+			} catch {}
+		}
+		// Keep only what this session is driving: another account's entries must not
+		// follow a wallet switch, or they would be saved under the new key.
+		setInFlight((cur) => {
+			const own = cur.filter((c) => live.current.has(c.id));
+			return [...stored.filter((s) => !own.some((c) => c.id === s.id)), ...own];
+		});
+		setLoadedKey(storeKey);
+	}, [storeKey]);
+
+	useEffect(() => {
+		if (!storeKey || loadedKey !== storeKey) return;
+		try {
+			localStorage.setItem(storeKey, serialize(inFlight));
+		} catch {}
+	}, [inFlight, storeKey, loadedKey]);
+
 	const patchFlight = (id: string, patch: Partial<ActivityEntry>) =>
 		setInFlight((list) =>
 			list.map((e) => (e.id === id ? { ...e, ...patch } : e)),
 		);
-	const dismissInFlight = (id: string) =>
+	const dismissInFlight = (id: string) => {
+		live.current.delete(id);
 		setInFlight((list) => list.filter((e) => e.id !== id));
+	};
 
 	function startFlight(
 		meta: {
@@ -169,10 +213,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 			agentId: string;
 			title: string;
 			amount: string;
+			resume?: ActivityEntry["resume"];
 		},
 		steps: RouteStep[],
 	) {
 		const id = `${meta.kind}-${meta.key}-${Date.now()}`;
+		live.current.add(id);
 		setInFlight((list) => [
 			...list,
 			{
@@ -185,6 +231,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 				amount: meta.amount,
 				status: "in-progress",
 				steps,
+				resume: meta.resume,
 			},
 		]);
 		const setStep = (
@@ -195,7 +242,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 			steps[index] = { ...steps[index], state, detail } as RouteStep;
 			patchFlight(id, { steps: [...steps] });
 		};
-		const fail = (index: number, err: unknown) =>
+		const fail = (index: number, err: unknown) => {
+			live.current.delete(id);
 			patchFlight(id, {
 				status: "failed",
 				reason: txErrorMessage(err),
@@ -203,6 +251,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 					i === index ? { ...s, state: "failed", detail: undefined } : s,
 				),
 			});
+		};
 		return { id, setStep, fail };
 	}
 
@@ -213,7 +262,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 	}
 
 	/** Same-chain path: approve USDC to the vault, then an ordinary ERC-4626 deposit. */
-	async function depositOnMonad(input: SubscribeInput) {
+	async function depositOnMonad(input: SubscribeInput, staleId?: string) {
 		if (!address) throw new Error("connect a wallet first");
 		if (!publicClient) throw new Error("no public client");
 		const agent = agents.find((a) => a.id === input.agentId);
@@ -228,6 +277,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 				agentId: input.agentId,
 				title: `Subscribe · ${agent.name}`,
 				amount: `${input.amount.toLocaleString("en-US")} ${input.symbol}`,
+				resume: {
+					chain: input.chain,
+					symbol: input.symbol,
+					amount: input.amount,
+				},
 			},
 			[
 				{ id: "approve", label: "Approve USDC", state: "active" },
@@ -238,18 +292,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 				},
 			],
 		);
+		if (staleId) dismissInFlight(staleId);
 		let step = 0;
 		try {
 			await ensureMonad();
-			const approveHash = await writeContractAsync({
-				address: CONTRACTS.usdc,
-				abi: MockERC20Abi,
-				functionName: "approve",
-				args: [vault, assets],
-			});
-			flight.setStep(0, "active", "confirming");
-			await publicClient.waitForTransactionReceipt({ hash: approveHash });
-			flight.setStep(0, "done");
+			const approved =
+				!!staleId &&
+				(await publicClient.readContract({
+					address: CONTRACTS.usdc,
+					abi: MockERC20Abi,
+					functionName: "allowance",
+					args: [address, vault],
+				})) >= assets;
+			if (approved) {
+				flight.setStep(0, "done", "already approved");
+			} else {
+				const approveHash = await writeContractAsync({
+					address: CONTRACTS.usdc,
+					abi: MockERC20Abi,
+					functionName: "approve",
+					args: [vault, assets],
+				});
+				flight.setStep(0, "active", "confirming");
+				await publicClient.waitForTransactionReceipt({ hash: approveHash });
+				flight.setStep(0, "done");
+			}
 			step = 1;
 			flight.setStep(1, "active");
 
@@ -290,6 +357,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 				agentId: input.agentId,
 				title: `Subscribe · ${agent.name}`,
 				amount: `${input.amount.toLocaleString("en-US")} ${input.symbol}`,
+				resume: {
+					chain: input.chain,
+					symbol: input.symbol,
+					amount: input.amount,
+				},
 			},
 			[
 				{ id: "sign", label: "Sign intent", state: "active" },
@@ -486,6 +558,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 			: depositViaAurora(input);
 	}
 
+	const canResume = (e: ActivityEntry) =>
+		e.kind === "subscribe" &&
+		e.resume?.chain === "monad" &&
+		!live.current.has(e.id) &&
+		!e.steps?.some((s) => s.id === "deposit" && s.state === "done");
+
 	const value: StoreValue = {
 		connected: ready && authenticated,
 		connectedAddress,
@@ -524,6 +602,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		},
 		redeem: stub("redeem"),
 		dismissInFlight,
+		canResume,
+		resumeSubscribe: (id) => {
+			const e = inFlight.find((x) => x.id === id);
+			if (!e || !e.resume || !canResume(e)) return;
+			depositOnMonad(
+				{
+					agentId: e.agentId,
+					chain: e.resume.chain,
+					symbol: e.resume.symbol,
+					amount: e.resume.amount,
+				},
+				id,
+			).catch((err) => console.error("resume failed:", err));
+		},
 	};
 
 	return (
