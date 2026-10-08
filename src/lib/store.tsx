@@ -117,6 +117,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
 	const agents = data?.agents ?? EMPTY_AGENTS;
 	const myPositions = data?.positions ?? EMPTY_POSITIONS;
+	const base = data?.base ?? null;
 	const connectedAddress = address ?? null;
 
 	const myAgents = useMemo(
@@ -145,8 +146,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		const byVault = new Map(
 			agents.map((a) => [a.vault.address.toLowerCase(), a]),
 		);
-		return toActivity(activityRows, byVault);
-	}, [activityRows, agents]);
+		return toActivity(activityRows, byVault, base);
+	}, [activityRows, agents, base]);
 
 	// Transactions this session is driving right now. The TopBar counts them
 	// and SubscribeFlow renders the route of its own; a failed entry stays

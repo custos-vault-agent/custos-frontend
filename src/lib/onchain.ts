@@ -2,6 +2,7 @@ import type { PublicClient } from "viem";
 import { hexToString, zeroAddress } from "viem";
 import { AgentVaultAbi } from "./abi/AgentVault";
 import { CustosCoreAbi } from "./abi/CustosCore";
+import { MockERC20Abi } from "./abi/MockERC20";
 import { NanSigilAbi } from "./abi/NanSigil";
 import {
 	CONTRACTS,
@@ -36,6 +37,59 @@ const YIELD_SOURCE_ABI = [
 		outputs: [{ type: "uint256" }],
 	},
 ] as const;
+
+const BASE_TOKEN_ABI = [
+	{
+		type: "function",
+		name: "baseToken",
+		stateMutability: "view",
+		inputs: [],
+		outputs: [{ type: "address" }],
+	},
+] as const;
+
+export type BaseToken = {
+	address: `0x${string}`;
+	symbol: string;
+	decimals: number;
+};
+
+/** The Kuru market's base token, read once per refresh. Null when any read
+ *  fails, so one bad market never blanks the marketplace. */
+async function fetchBaseToken(
+	publicClient: PublicClient,
+): Promise<BaseToken | null> {
+	try {
+		const adapter = await publicClient.readContract({
+			address: CONTRACTS.custosCore,
+			abi: CustosCoreAbi,
+			functionName: "marketAdapter",
+		});
+		if (adapter === zeroAddress) return null;
+		const address = await publicClient.readContract({
+			address: adapter,
+			abi: BASE_TOKEN_ABI,
+			functionName: "baseToken",
+		});
+		if (address === zeroAddress) return null;
+		const [symbol, decimals] = await Promise.all([
+			publicClient.readContract({
+				address,
+				abi: MockERC20Abi,
+				functionName: "symbol",
+			}),
+			publicClient.readContract({
+				address,
+				abi: MockERC20Abi,
+				functionName: "decimals",
+			}),
+		]);
+		return { address, symbol, decimals };
+	} catch (err) {
+		console.warn("base token metadata unavailable:", err);
+		return null;
+	}
+}
 
 type RegistryRecord = {
 	name: `0x${string}`;
@@ -90,7 +144,11 @@ const THIRTY_DAYS = 30 * 24 * 60 * 60;
 export async function fetchAgents(
 	publicClient: PublicClient,
 	account?: `0x${string}`,
-): Promise<{ agents: Agent[]; positions: Position[] }> {
+): Promise<{
+	agents: Agent[];
+	positions: Position[];
+	base: BaseToken | null;
+}> {
 	// The RPC decides which chain this really is. A VITE_RPC_URL that points at a
 	// different network than VITE_CHAIN_ID makes the wallet ask for the wrong chain
 	// and every address read return nothing, so say that instead of showing an
@@ -101,6 +159,8 @@ export async function fetchAgents(
 			`VITE_RPC_URL serves chain ${chainId}, but VITE_CHAIN_ID is ${monadChain.id}. Point both at the same network and rebuild.`,
 		);
 	}
+
+	const base = await fetchBaseToken(publicClient);
 
 	const indexed = await fetchIndexedAgents(chainId).catch((err) => {
 		console.warn("indexer unavailable, listing from chain:", err);
@@ -121,7 +181,7 @@ export async function fetchAgents(
 				})),
 			}
 		: await listFromChain(publicClient);
-	if (ids.length === 0) return { agents: [], positions: [] };
+	if (ids.length === 0) return { agents: [], positions: [], base };
 	const descriptionById = new Map(
 		indexed?.agents.map((a) => [a.id.toLowerCase(), a.description]) ?? [],
 	);
@@ -348,5 +408,5 @@ export async function fetchAgents(
 				]
 			: [],
 	);
-	return { agents, positions };
+	return { agents, positions, base };
 }

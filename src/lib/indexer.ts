@@ -3,6 +3,7 @@
 // slow-changing metadata; live vault numbers still come from the chain in
 // onchain.ts so a user's own action never looks stale.
 
+import { formatUnits } from "viem";
 import { fromTokenUnits } from "./chain";
 import { formatAmount } from "./format";
 import type { ActivityEntry } from "./types";
@@ -156,6 +157,7 @@ const usdc = (v: unknown) => `${formatAmount(fromTokenUnits(big(v)))} USDC`;
 export function toActivity(
 	rows: Partial<ActivityRows>,
 	agentsByVault: Map<string, VaultAgent>,
+	base: { symbol: string; decimals: number } | null,
 ): ActivityEntry[] {
 	const out: ActivityEntry[] = [];
 	const add = (
@@ -211,7 +213,9 @@ export function toActivity(
 		},
 		title: `${r.isBuy ? "Buy" : "Sell"} · ${a.name}`,
 		amount: usdc(r.notionalCharged),
-		amountSub: formatAmount(fromTokenUnits(big(r.baseAmount))),
+		amountSub: base
+			? `${formatAmount(Number(formatUnits(big(r.baseAmount), base.decimals)))} ${base.symbol}`
+			: undefined,
 	}));
 	add("AgentVault_FeeMinted", (r, a) => ({
 		kind: "fee-mint",
