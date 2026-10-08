@@ -46,6 +46,13 @@ import type {
 
 export type { RedeemInput, RegisterInput, SubscribeInput };
 
+export type Toast = {
+	id: string;
+	tone: "pending" | "ok" | "fail";
+	title: string;
+	detail?: string;
+};
+
 type StoreValue = {
 	connected: boolean;
 	connectedAddress: string | null;
@@ -75,6 +82,8 @@ type StoreValue = {
 	redeem: (input: RedeemInput) => void;
 	/** Clears a finished (failed) in-flight entry from the panel that shows it. */
 	dismissInFlight: (id: string) => void;
+	toasts: Toast[];
+	dismissToast: (id: string) => void;
 	/** True when `resumeFlight` would act on this entry. */
 	canResume: (entry: ActivityEntry) => boolean;
 	/** Re-runs an interrupted Monad deposit or registration, skipping an approve that already landed. */
@@ -176,9 +185,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		setInFlight((list) => list.filter((e) => e.id !== id));
 	};
 
+	const [toasts, setToasts] = useState<Toast[]>([]);
+	const titles = useRef(new Map<string, string>());
+	const dismissToast = (id: string) =>
+		setToasts((list) => list.filter((t) => t.id !== id));
+	// One toast per flight id; a later state replaces the earlier one.
+	const pushToast = (t: Toast) => {
+		setToasts((list) => [...list.filter((x) => x.id !== t.id), t]);
+		if (t.tone !== "pending") setTimeout(() => dismissToast(t.id), 6_000);
+	};
+
 	// Keep the finished row visible for a while; the timer is bound to this id.
 	const finishFlight = (id: string, txHash?: string) => {
 		patchFlight(id, { status: "filled", txHash });
+		pushToast({
+			id,
+			tone: "ok",
+			title: titles.current.get(id) ?? "Transaction",
+		});
+		titles.current.delete(id);
 		setTimeout(() => dismissInFlight(id), 20_000);
 	};
 
@@ -196,6 +221,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 	) {
 		const id = `${meta.kind}-${meta.key}-${Date.now()}`;
 		live.current.add(id);
+		titles.current.set(id, meta.title);
 		setInFlight((list) => [
 			...list,
 			{
@@ -218,12 +244,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		) => {
 			steps[index] = { ...steps[index], state, detail } as RouteStep;
 			patchFlight(id, { steps: [...steps] });
+			if (detail === "confirming")
+				pushToast({
+					id,
+					tone: "pending",
+					title: meta.title,
+					detail: `${steps[index].label}: transaction sent, waiting for confirmation`,
+				});
 		};
 		const fail = (index: number, err: unknown) => {
 			live.current.delete(id);
+			const reason = txErrorMessage(err);
+			titles.current.delete(id);
+			pushToast({ id, tone: "fail", title: meta.title, detail: reason });
 			patchFlight(id, {
 				status: "failed",
-				reason: txErrorMessage(err),
+				reason,
 				steps: steps.map((s, i) =>
 					i === index ? { ...s, state: "failed", detail: undefined } : s,
 				),
@@ -697,6 +733,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		},
 		redeem: stub("redeem"),
 		dismissInFlight,
+		toasts,
+		dismissToast,
 		canResume,
 		resumeFlight: (id) => {
 			const e = inFlight.find((x) => x.id === id);

@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 
+import { Toaster } from "#/components/Toaster";
 import { TopBar } from "#/components/TopBar";
 import { Button, Empty } from "#/components/ui/primitives";
 import { StoreProvider } from "#/lib/store";
@@ -68,6 +69,7 @@ function RootLayout() {
 					<Outlet />
 				</main>
 				{/* Sits above everything, catches no clicks. */}
+				<Toaster />
 				<div aria-hidden className="scanlines-overlay" />
 			</StoreProvider>
 		</Web3Provider>
