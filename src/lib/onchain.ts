@@ -11,7 +11,7 @@ import {
 	secondsToResetPeriod,
 } from "./chain";
 import { fetchIndexedAgents } from "./indexer";
-import type { Agent, AgentStatus, NansenBadge } from "./types";
+import type { Agent, AgentStatus, NansenBadge, Position } from "./types";
 
 const DEAD_ADDRESS = "0x0000000000000000000000000000000000000001" as const;
 
@@ -89,7 +89,8 @@ const THIRTY_DAYS = 30 * 24 * 60 * 60;
  *  baseline. */
 export async function fetchAgents(
 	publicClient: PublicClient,
-): Promise<Agent[]> {
+	account?: `0x${string}`,
+): Promise<{ agents: Agent[]; positions: Position[] }> {
 	// The RPC decides which chain this really is. A VITE_RPC_URL that points at a
 	// different network than VITE_CHAIN_ID makes the wallet ask for the wrong chain
 	// and every address read return nothing, so say that instead of showing an
@@ -120,7 +121,7 @@ export async function fetchAgents(
 				})),
 			}
 		: await listFromChain(publicClient);
-	if (ids.length === 0) return [];
+	if (ids.length === 0) return { agents: [], positions: [] };
 	const descriptionById = new Map(
 		indexed?.agents.map((a) => [a.id.toLowerCase(), a.description]) ?? [],
 	);
@@ -157,6 +158,12 @@ export async function fetchAgents(
 					abi: AgentVaultAbi,
 					functionName: "breakerTripped",
 				},
+				{
+					address: r.vault,
+					abi: AgentVaultAbi,
+					functionName: "balanceOf",
+					args: [account ?? zeroAddress],
+				},
 			] as const,
 	);
 	const vaultResults = (await publicClient.multicall({
@@ -164,7 +171,7 @@ export async function fetchAgents(
 		allowFailure: false,
 	})) as readonly unknown[];
 
-	const FIELDS_PER_VAULT = 12;
+	const FIELDS_PER_VAULT = 13;
 	const vaultDataByIndex = records.map((_, i) => {
 		const base = i * FIELDS_PER_VAULT;
 		return {
@@ -180,6 +187,7 @@ export async function fetchAgents(
 			yieldSource: vaultResults[base + 9] as `0x${string}`,
 			seedShares: vaultResults[base + 10] as bigint,
 			breakerTripped: vaultResults[base + 11] as boolean,
+			shares: vaultResults[base + 12] as bigint,
 		};
 	});
 
@@ -253,7 +261,7 @@ export async function fetchAgents(
 		}),
 	);
 
-	return records.map((r, i) => {
+	const agents = records.map((r, i) => {
 		const v = vaultDataByIndex[i];
 		const totalAssets = fromTokenUnits(v.totalAssets);
 		const totalShares = fromTokenUnits(v.totalSupply);
@@ -328,4 +336,17 @@ export async function fetchAgents(
 		};
 		return agent;
 	});
+
+	const positions = vaultDataByIndex.flatMap((v, i) =>
+		v.shares > 0n && account
+			? [
+					{
+						agentId: ids[i],
+						subscriberAddress: account,
+						shares: fromTokenUnits(v.shares),
+					},
+				]
+			: [],
+	);
+	return { agents, positions };
 }

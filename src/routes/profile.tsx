@@ -196,7 +196,10 @@ function ProfilePage() {
 									const agent = agents.find((a) => a.id === position.agentId);
 									if (!agent) return null;
 									const value = position.shares * agent.vault.sharePrice;
-									const pnl = value - position.depositedAssets;
+									const pnl =
+										position.depositedAssets === undefined
+											? null
+											: value - position.depositedAssets;
 									return (
 										<div
 											key={position.agentId}
@@ -214,12 +217,14 @@ function ProfilePage() {
 												<div className="tnum text-[18px]">
 													{formatAmount(value)} USDC
 												</div>
-												<div
-													className={`tnum text-[16px] ${pnl < 0 ? "text-sell" : "text-accent"}`}
-												>
-													{pnl >= 0 ? "+" : ""}
-													{formatAmount(pnl)}
-												</div>
+												{pnl === null ? null : (
+													<div
+														className={`tnum text-[16px] ${pnl < 0 ? "text-sell" : "text-accent"}`}
+													>
+														{pnl >= 0 ? "+" : ""}
+														{formatAmount(pnl)}
+													</div>
+												)}
 											</div>
 											<Button
 												size="sm"

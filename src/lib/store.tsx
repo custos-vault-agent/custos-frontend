@@ -99,6 +99,9 @@ function stub(name: string) {
 	};
 }
 
+const EMPTY_AGENTS: Agent[] = [];
+const EMPTY_POSITIONS: Position[] = [];
+
 const StoreContext = createContext<StoreValue | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
@@ -109,16 +112,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 	const { writeContractAsync } = useWriteContract();
 	const queryClient = useQueryClient();
 
-	const { data: agents = [], isLoading: agentsLoading } = useQuery({
-		queryKey: ["agents"],
+	const { data, isLoading: agentsLoading } = useQuery({
+		queryKey: ["agents", address],
 		queryFn: () => {
 			if (!publicClient) throw new Error("no public client");
-			return fetchAgents(publicClient);
+			return fetchAgents(publicClient, address);
 		},
 		enabled: !!publicClient,
 		refetchInterval: 10_000,
 	});
 
+	const agents = data?.agents ?? EMPTY_AGENTS;
+	const myPositions = data?.positions ?? EMPTY_POSITIONS;
 	const connectedAddress = address ?? null;
 
 	const myAgents = useMemo(
@@ -133,11 +138,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		[agents, connectedAddress],
 	);
 
-	// Position tracking (shares-per-subscriber) needs an indexer or a
-	// balanceOf-per-vault read this plan doesn't add yet — empty until a
-	// later plan wires it, same "honest zero" philosophy as agent.stats.
+	// Every subscriber of every agent needs the indexer; only the connected
+	// wallet's own balances are read on-chain (myPositions).
 	const positions: Position[] = [];
-	const myPositions: Position[] = [];
 	const history: ActivityEntry[] = [];
 
 	// Transactions this session is driving right now. The TopBar counts them

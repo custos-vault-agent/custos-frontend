@@ -84,7 +84,10 @@ function VaultDetailPage() {
 	const revoked = agent.status === "revoked";
 
 	const yourValue = position ? position.shares * agent.vault.sharePrice : 0;
-	const yourPnl = position ? yourValue - position.depositedAssets : 0;
+	const yourPnl =
+		position?.depositedAssets === undefined
+			? null
+			: yourValue - position.depositedAssets;
 
 	return (
 		<div className="flex flex-col gap-4 lg:flex-row lg:items-start">
@@ -196,15 +199,17 @@ function VaultDetailPage() {
 									<span className="tnum text-[21px]">
 										{formatAmount(yourValue)} USDC
 									</span>
-									<span
-										className={cx(
-											"tnum text-[17px]",
-											yourPnl < 0 ? "text-sell" : "text-accent",
-										)}
-									>
-										{yourPnl >= 0 ? "+" : ""}
-										{formatAmount(yourPnl)} P/L
-									</span>
+									{yourPnl === null ? null : (
+										<span
+											className={cx(
+												"tnum text-[17px]",
+												yourPnl < 0 ? "text-sell" : "text-accent",
+											)}
+										>
+											{yourPnl >= 0 ? "+" : ""}
+											{formatAmount(yourPnl)} P/L
+										</span>
+									)}
 								</div>
 							</div>
 						) : null}

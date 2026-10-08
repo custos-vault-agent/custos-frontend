@@ -77,8 +77,8 @@ export type Position = {
 	agentId: string;
 	subscriberAddress: string;
 	shares: number;
-	/** Cost basis, for the P/L readout. */
-	depositedAssets: number;
+	/** Cost basis, for the P/L readout. Unset when unknown (share balance only). */
+	depositedAssets?: number;
 };
 
 export type Agent = {
