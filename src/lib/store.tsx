@@ -28,6 +28,7 @@ import {
 	RESET_PERIOD_SECONDS,
 	USDC_DECIMALS,
 } from "./chain";
+import { fetchIndexedActivity, toActivity } from "./indexer";
 import { isResumable, parse, serialize, storageKey } from "./inflight";
 import { pullAttestation } from "./nansigil";
 import { fetchAgents } from "./onchain";
@@ -141,7 +142,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 	// Every subscriber of every agent needs the indexer; only the connected
 	// wallet's own balances are read on-chain (myPositions).
 	const positions: Position[] = [];
-	const history: ActivityEntry[] = [];
+	const { data: activityRows } = useQuery({
+		queryKey: ["activity", monadChain.id],
+		queryFn: () => fetchIndexedActivity(monadChain.id),
+		refetchInterval: 30_000,
+		retry: false,
+	});
+	const history = useMemo(() => {
+		if (!activityRows) return [];
+		const byVault = new Map(
+			agents.map((a) => [a.vault.address.toLowerCase(), a]),
+		);
+		return toActivity(activityRows, byVault);
+	}, [activityRows, agents]);
 
 	// Transactions this session is driving right now. The TopBar counts them
 	// and SubscribeFlow renders the route of its own; a failed entry stays
