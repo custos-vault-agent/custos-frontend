@@ -54,7 +54,11 @@ function ProfilePage() {
 	});
 	const attestedAt = latestAttestation ? Number(latestAttestation[1]) : 0;
 	// `vault-config` is this action's kind and nothing else uses it yet.
-	const claiming = inFlight.some((e) => e.kind === "vault-config");
+	// Only a badge claim that is still running: a finished one lingers 20s, and
+	// pause or revoke share the same kind.
+	const claiming = inFlight.some(
+		(e) => e.status === "in-progress" && e.resume?.action === "badge",
+	);
 	const badgeLabel =
 		myAgents.find((a) => a.nansen?.verified)?.nansen?.label ?? null;
 
