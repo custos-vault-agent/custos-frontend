@@ -1,3 +1,4 @@
+import type { AuroraUsdc } from "./aurora";
 export type ChainId = "monad" | "solana" | "base" | "arbitrum" | "ethereum";
 
 export type AssetSymbol = "USDC" | "MON" | "SOL" | "ETH" | "WBTC";
@@ -146,6 +147,38 @@ export type ActivityEntry = {
 	groupChildren?: ActivityEntry[];
 	/** Why a rejected action was rejected, e.g. "allowance exhausted". */
 	reason?: string;
-	/** What a subscribe needs to be run again from the Activity page. */
-	resume?: { chain: string; symbol: string; amount: number };
+	/** What a subscribe or registration needs to be run again from the Activity page. */
+	resume?:
+		| { action: "subscribe"; chain: string; symbol: string; amount: number }
+		| { action: "register"; input: RegisterInput };
+};
+
+export type RegisterInput = {
+	name: string;
+	description: string;
+	agentAddress: string;
+	seedAmount: number;
+	allowance: number;
+	resetPeriod: ResetPeriod;
+	feeRateBps: number;
+	maxDrawdownBps: number;
+	maxUtilizationBps: number;
+	yieldEnabled: boolean;
+	isPublic: boolean;
+};
+
+export type SubscribeInput = {
+	agentId: string;
+	/** "monad" deposits straight from the wallet; anything else goes through Aurora. */
+	chain: string;
+	symbol: string;
+	amount: number;
+	/** Required for a non-Monad chain: the USDC token on the origin and on Monad. */
+	aurora?: { origin: AuroraUsdc; destination: AuroraUsdc };
+};
+
+export type RedeemInput = {
+	agentId: string;
+	shares: number;
+	chain: string;
 };

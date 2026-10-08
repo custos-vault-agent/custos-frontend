@@ -48,7 +48,7 @@ function matches(filter: Filter, entry: ActivityEntry): boolean {
 }
 
 function ActivityPage() {
-	const { inFlight, history, canResume, resumeSubscribe } = useStore();
+	const { inFlight, history, canResume, resumeFlight } = useStore();
 	const [filter, setFilter] = useState<Filter>("all");
 
 	const rows = useMemo(
@@ -84,7 +84,7 @@ function ActivityPage() {
 										<Button
 											size="sm"
 											variant="primary"
-											onClick={() => resumeSubscribe(entry.id)}
+											onClick={() => resumeFlight(entry.id)}
 										>
 											Continue
 										</Button>

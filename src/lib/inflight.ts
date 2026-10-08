@@ -36,12 +36,13 @@ export function parse(raw: string | null, now: number): ActivityEntry[] {
 	}
 }
 
-/** A subscribe can run again while its deposit has not landed. Aurora is excluded:
+/** A flight can run again while its landing step has not completed. Aurora is excluded:
  *  its transfer may already have left the wallet and we cannot continue it. */
 export function isResumable(entry: ActivityEntry): boolean {
-	return (
-		entry.kind === "subscribe" &&
-		entry.resume?.chain === "monad" &&
-		!entry.steps?.some((s) => s.id === "deposit" && s.state === "done")
-	);
+	const r = entry.resume;
+	const done = (id: string) =>
+		entry.steps?.some((s) => s.id === id && s.state === "done");
+	if (r?.action === "register") return !done("register");
+	if (r?.action === "subscribe") return r.chain === "monad" && !done("deposit");
+	return false;
 }

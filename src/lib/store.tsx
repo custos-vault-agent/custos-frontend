@@ -21,12 +21,7 @@ import { AgentVaultAbi } from "./abi/AgentVault";
 import { CustosCoreAbi } from "./abi/CustosCore";
 import { MockERC20Abi } from "./abi/MockERC20";
 import { NanSigilAbi } from "./abi/NanSigil";
-import {
-	type AuroraUsdc,
-	createAuroraRunner,
-	evmConnector,
-	vaultDepositRecipe,
-} from "./aurora";
+import { createAuroraRunner, evmConnector, vaultDepositRecipe } from "./aurora";
 import {
 	CONTRACTS,
 	monadChain,
@@ -42,39 +37,14 @@ import type {
 	ActivityKind,
 	Agent,
 	Position,
+	RedeemInput,
+	RegisterInput,
 	ResetPeriod,
 	RouteStep,
+	SubscribeInput,
 } from "./types";
 
-export type RegisterInput = {
-	name: string;
-	description: string;
-	agentAddress: string;
-	seedAmount: number;
-	allowance: number;
-	resetPeriod: ResetPeriod;
-	feeRateBps: number;
-	maxDrawdownBps: number;
-	maxUtilizationBps: number;
-	yieldEnabled: boolean;
-	isPublic: boolean;
-};
-
-export type SubscribeInput = {
-	agentId: string;
-	/** "monad" deposits straight from the wallet; anything else goes through Aurora. */
-	chain: string;
-	symbol: string;
-	amount: number;
-	/** Required for a non-Monad chain: the USDC token on the origin and on Monad. */
-	aurora?: { origin: AuroraUsdc; destination: AuroraUsdc };
-};
-
-export type RedeemInput = {
-	agentId: string;
-	shares: number;
-	chain: string;
-};
+export type { RedeemInput, RegisterInput, SubscribeInput };
 
 type StoreValue = {
 	connected: boolean;
@@ -105,10 +75,10 @@ type StoreValue = {
 	redeem: (input: RedeemInput) => void;
 	/** Clears a finished (failed) in-flight entry from the panel that shows it. */
 	dismissInFlight: (id: string) => void;
-	/** True when `resumeSubscribe` would act on this entry. */
+	/** True when `resumeFlight` would act on this entry. */
 	canResume: (entry: ActivityEntry) => boolean;
-	/** Re-runs an interrupted Monad deposit, skipping an approve that already landed. */
-	resumeSubscribe: (id: string) => void;
+	/** Re-runs an interrupted Monad deposit or registration, skipping an approve that already landed. */
+	resumeFlight: (id: string) => void;
 };
 
 const STUB_MESSAGE =
@@ -278,6 +248,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 				title: `Subscribe · ${agent.name}`,
 				amount: `${input.amount.toLocaleString("en-US")} ${input.symbol}`,
 				resume: {
+					action: "subscribe",
 					chain: input.chain,
 					symbol: input.symbol,
 					amount: input.amount,
@@ -357,6 +328,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 				title: `Subscribe · ${agent.name}`,
 				amount: `${input.amount.toLocaleString("en-US")} ${input.symbol}`,
 				resume: {
+					action: "subscribe",
 					chain: input.chain,
 					symbol: input.symbol,
 					amount: input.amount,
@@ -422,7 +394,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
 	/** Registration: approve the seed to CustosCore, then one `registerAgent`
 	 *  call that deploys the vault, pulls the seed and locks its shares. */
-	async function registerAgentOnChain(input: RegisterInput) {
+	async function registerAgentOnChain(input: RegisterInput, staleId?: string) {
 		if (!address) throw new Error("connect a wallet first");
 		if (!publicClient) throw new Error("no public client");
 		const seed = BigInt(Math.round(input.seedAmount * 10 ** USDC_DECIMALS));
@@ -440,24 +412,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 				agentId: "",
 				title: `Register · ${input.name}`,
 				amount: `${input.seedAmount.toLocaleString("en-US")} USDC`,
+				resume: { action: "register", input },
 			},
 			[
 				{ id: "approve", label: "Approve seed USDC", state: "active" },
 				{ id: "register", label: "Register and seed vault", state: "pending" },
 			],
 		);
+		if (staleId) dismissInFlight(staleId);
 		let step = 0;
 		try {
 			await ensureMonad();
-			const approveHash = await writeContractAsync({
-				address: CONTRACTS.usdc,
-				abi: MockERC20Abi,
-				functionName: "approve",
-				args: [CONTRACTS.custosCore, seed],
-			});
-			flight.setStep(0, "active", "confirming");
-			await publicClient.waitForTransactionReceipt({ hash: approveHash });
-			flight.setStep(0, "done");
+			const approved =
+				(await publicClient.readContract({
+					address: CONTRACTS.usdc,
+					abi: MockERC20Abi,
+					functionName: "allowance",
+					args: [address, CONTRACTS.custosCore],
+				})) >= seed;
+			if (approved) {
+				flight.setStep(0, "done", "already approved");
+			} else {
+				const approveHash = await writeContractAsync({
+					address: CONTRACTS.usdc,
+					abi: MockERC20Abi,
+					functionName: "approve",
+					args: [CONTRACTS.custosCore, seed],
+				});
+				flight.setStep(0, "active", "confirming");
+				await publicClient.waitForTransactionReceipt({ hash: approveHash });
+				flight.setStep(0, "done");
+			}
 			step = 1;
 			flight.setStep(1, "active");
 
@@ -600,18 +585,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		redeem: stub("redeem"),
 		dismissInFlight,
 		canResume,
-		resumeSubscribe: (id) => {
+		resumeFlight: (id) => {
 			const e = inFlight.find((x) => x.id === id);
-			if (!e || !e.resume || !canResume(e)) return;
-			depositOnMonad(
-				{
-					agentId: e.agentId,
-					chain: e.resume.chain,
-					symbol: e.resume.symbol,
-					amount: e.resume.amount,
-				},
-				id,
-			).catch((err) => console.error("resume failed:", err));
+			const r = e?.resume;
+			if (!e || !r || !canResume(e)) return;
+			const run =
+				r.action === "register"
+					? registerAgentOnChain(r.input, id)
+					: depositOnMonad(
+							{
+								agentId: e.agentId,
+								chain: r.chain,
+								symbol: r.symbol,
+								amount: r.amount,
+							},
+							id,
+						);
+			run.catch((err) => console.error("resume failed:", err));
 		},
 	};
 
