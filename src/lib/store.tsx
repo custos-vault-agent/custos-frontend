@@ -138,6 +138,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 	const [inFlight, setInFlight] = useState<ActivityEntry[]>([]);
 	// Ids this session is actively driving; a stored entry from before a reload is not.
 	const live = useRef(new Set<string>());
+	const creatorQueue = useRef<Promise<void>>(Promise.resolve());
 	const storeKey = connectedAddress
 		? storageKey(monadChain.id, connectedAddress)
 		: null;
@@ -536,6 +537,76 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		}
 	}
 
+	// A union, so a wrong argument for a function is a type error at the call site.
+	type CreatorCall = { label: string } & (
+		| { functionName: "pauseAgent" | "resumeAgent" | "revokeAgent"; args: [] }
+		| { functionName: "setPublic"; args: [boolean] }
+		| { functionName: "setAllowance"; args: [bigint] }
+		| { functionName: "setPeriod"; args: [number] }
+	);
+
+	/** Creator-only CustosCore writes, one transaction per step. No resume
+	 *  payload: the user presses the button again instead of replaying a stale one. */
+	async function creatorActionOnChain(
+		id: string,
+		title: string,
+		calls: CreatorCall[],
+	) {
+		if (!address) throw new Error("connect a wallet first");
+		if (!publicClient) throw new Error("no public client");
+		const agent = agents.find((a) => a.id === id);
+		if (!agent) throw new Error("unknown agent");
+		if (calls.length === 0) return;
+
+		const flight = startFlight(
+			{
+				kind: "vault-config",
+				key: id,
+				agentId: id,
+				title: `${title} · ${agent.name}`,
+				amount: "",
+			},
+			calls.map((c, i) => ({
+				id: c.functionName,
+				label: c.label,
+				state: i === 0 ? "active" : "pending",
+			})),
+		);
+		let step = 0;
+		try {
+			await ensureMonad();
+			for (; step < calls.length; step++) {
+				flight.setStep(step, "active");
+				const hash = await writeContractAsync({
+					address: CONTRACTS.custosCore,
+					abi: CustosCoreAbi,
+					functionName: calls[step].functionName,
+					args: [id, ...calls[step].args],
+				} as never);
+				flight.setStep(step, "active", "confirming");
+				await publicClient.waitForTransactionReceipt({ hash });
+				flight.setStep(step, "done");
+			}
+			await queryClient.invalidateQueries({ queryKey: ["agents"] });
+			dismissInFlight(flight.id);
+		} catch (err) {
+			flight.fail(step, err);
+			throw err;
+		}
+	}
+
+	// Saving allowance and visibility together would otherwise open two wallet
+	// popups at once, so creator actions run one after another.
+	const runCreatorAction = (
+		id: string,
+		title: string,
+		calls: CreatorCall[],
+	) => {
+		creatorQueue.current = creatorQueue.current
+			.then(() => creatorActionOnChain(id, title, calls))
+			.catch((err) => console.error(`${title} failed:`, err));
+	};
+
 	async function subscribeOnChain(input: SubscribeInput) {
 		return input.chain === "monad"
 			? depositOnMonad(input)
@@ -571,11 +642,43 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 				console.error("claimNansenBadge failed:", err),
 			);
 		},
-		setAllowance: stub("setAllowance"),
-		pauseAgent: stub("pauseAgent"),
-		resumeAgent: stub("resumeAgent"),
-		revokeAgent: stub("revokeAgent"),
-		setPublic: stub("setPublic"),
+		setAllowance: (id, allowance, resetPeriod) => {
+			const agent = agents.find((a) => a.id === id);
+			const calls: CreatorCall[] = [];
+			if (agent?.allowance !== allowance)
+				calls.push({
+					label: "Set allowance",
+					functionName: "setAllowance",
+					args: [BigInt(Math.round(allowance * 10 ** USDC_DECIMALS))],
+				});
+			if (agent?.resetPeriod !== resetPeriod)
+				calls.push({
+					label: "Set reset period",
+					functionName: "setPeriod",
+					args: [RESET_PERIOD_SECONDS[resetPeriod]],
+				});
+			runCreatorAction(id, "Allowance", calls);
+		},
+		pauseAgent: (id) =>
+			runCreatorAction(id, "Pause", [
+				{ label: "Pause agent", functionName: "pauseAgent", args: [] },
+			]),
+		resumeAgent: (id) =>
+			runCreatorAction(id, "Resume", [
+				{ label: "Resume agent", functionName: "resumeAgent", args: [] },
+			]),
+		revokeAgent: (id) =>
+			runCreatorAction(id, "Revoke", [
+				{ label: "Revoke agent", functionName: "revokeAgent", args: [] },
+			]),
+		setPublic: (id, isPublic) =>
+			runCreatorAction(id, "Visibility", [
+				{
+					label: isPublic ? "Make public" : "Make private",
+					functionName: "setPublic",
+					args: [isPublic],
+				},
+			]),
 		subscribe: (input) => {
 			// The failure is already on screen via inFlight; the log is for devtools.
 			subscribeOnChain(input).catch((err) =>
