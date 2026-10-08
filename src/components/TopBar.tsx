@@ -40,6 +40,7 @@ function ThemeToggle() {
 export function TopBar() {
 	const { connected, connect, disconnect, inFlight, connectedAddress } =
 		useStore();
+	const flying = inFlight.filter((e) => e.status === "in-progress").length;
 
 	return (
 		<header className="sticky top-0 z-40 border-b-2 border-edge bg-bg/95 backdrop-blur-[1px]">
@@ -66,7 +67,7 @@ export function TopBar() {
 				</nav>
 
 				<div className="ml-auto flex shrink-0 items-center gap-2">
-					{inFlight.length > 0 ? (
+					{flying > 0 ? (
 						<Link
 							to="/activity"
 							className="hidden items-center gap-2 border border-warn px-2 text-[16px] uppercase tracking-[1px] text-warn sm:flex"
@@ -75,7 +76,7 @@ export function TopBar() {
 								className="size-[7px] animate-pulse-led bg-warn"
 								aria-hidden
 							/>
-							{inFlight.length} in flight
+							{flying} in flight
 						</Link>
 					) : null}
 

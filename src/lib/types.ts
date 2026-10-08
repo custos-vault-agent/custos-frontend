@@ -150,7 +150,8 @@ export type ActivityEntry = {
 	/** What a subscribe or registration needs to be run again from the Activity page. */
 	resume?:
 		| { action: "subscribe"; chain: string; symbol: string; amount: number }
-		| { action: "register"; input: RegisterInput };
+		| { action: "register"; input: RegisterInput }
+		| { action: "badge" };
 };
 
 export type RegisterInput = {

@@ -30,7 +30,10 @@ export function parse(raw: string | null, now: number): ActivityEntry[] {
 	try {
 		const data: unknown = JSON.parse(raw);
 		if (!Array.isArray(data)) return [];
-		return data.filter((e) => valid(e) && now - e.timestamp <= MAX_AGE_MS);
+		return data.filter(
+			(e) =>
+				valid(e) && now - e.timestamp <= MAX_AGE_MS && e.status !== "filled",
+		);
 	} catch {
 		return [];
 	}
@@ -39,10 +42,12 @@ export function parse(raw: string | null, now: number): ActivityEntry[] {
 /** A flight can run again while its landing step has not completed. Aurora is excluded:
  *  its transfer may already have left the wallet and we cannot continue it. */
 export function isResumable(entry: ActivityEntry): boolean {
+	if (entry.status === "filled") return false;
 	const r = entry.resume;
 	const done = (id: string) =>
 		entry.steps?.some((s) => s.id === id && s.state === "done");
 	if (r?.action === "register") return !done("register");
 	if (r?.action === "subscribe") return r.chain === "monad" && !done("deposit");
+	if (r?.action === "badge") return !done("submit");
 	return false;
 }

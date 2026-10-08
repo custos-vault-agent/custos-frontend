@@ -87,9 +87,11 @@ export function SubscribeFlow({
 	});
 	const [landed, setLanded] = useState(false);
 
-	const flight =
-		inFlight.find((e) => e.kind === "subscribe" && e.agentId === agentId) ??
-		null;
+	const mine = inFlight.filter(
+		(e) => e.kind === "subscribe" && e.agentId === agentId,
+	);
+	const flight = mine.find((e) => e.status !== "filled") ?? null;
+	const filled = mine.some((e) => e.status === "filled");
 	const wasFlying = useRef(false);
 
 	useEffect(() => {
@@ -98,14 +100,14 @@ export function SubscribeFlow({
 			setLanded(false);
 			return;
 		}
-		// The store removes a successful flight the moment its receipt lands; a
-		// failed one stays (status "failed") until dismissed, and is not a landing.
-		if (!flight && wasFlying.current) {
+		// A successful flight turns "filled" and lingers; a failed one stays
+		// "failed" until dismissed and is not a landing.
+		if (!flight && filled && wasFlying.current) {
 			wasFlying.current = false;
 			setLanded(true);
 		}
 		if (flight?.status === "failed") wasFlying.current = false;
-	}, [flight]);
+	}, [flight, filled]);
 
 	// The deposit is signed on the origin chain (or Monad), so put the wallet there first.
 	async function start() {

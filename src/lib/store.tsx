@@ -176,6 +176,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		setInFlight((list) => list.filter((e) => e.id !== id));
 	};
 
+	// Keep the finished row visible for a while; the timer is bound to this id.
+	const finishFlight = (id: string, txHash?: string) => {
+		patchFlight(id, { status: "filled", txHash });
+		setTimeout(() => dismissInFlight(id), 20_000);
+	};
+
 	function startFlight(
 		meta: {
 			kind: ActivityKind;
@@ -302,7 +308,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 			flight.setStep(1, "done");
 
 			await queryClient.invalidateQueries({ queryKey: ["agents"] });
-			dismissInFlight(flight.id);
+			finishFlight(flight.id, depositHash);
 		} catch (err) {
 			flight.fail(step, err);
 			throw err;
@@ -386,7 +392,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 			});
 			flight.setStep(2, "done");
 			await queryClient.invalidateQueries({ queryKey: ["agents"] });
-			dismissInFlight(flight.id);
+			finishFlight(flight.id);
 		} catch (err) {
 			flight.fail(step, err);
 			throw err;
@@ -470,7 +476,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 			flight.setStep(1, "done");
 
 			await queryClient.invalidateQueries({ queryKey: ["agents"] });
-			dismissInFlight(flight.id);
+			finishFlight(flight.id, registerHash);
 		} catch (err) {
 			flight.fail(step, err);
 			throw err;
@@ -479,7 +485,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
 	/** Badge: pull the signed profile, then relay it to NanSigil. Custos reads
 	 *  `latest(creator)`, so one claim covers every agent of this wallet. */
-	async function claimNansenBadgeOnChain() {
+	async function claimNansenBadgeOnChain(staleId?: string) {
 		if (!address) throw new Error("connect a wallet first");
 		if (!publicClient) throw new Error("no public client");
 		if (CONTRACTS.nansigil === zeroAddress)
@@ -492,12 +498,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 				agentId: "",
 				title: "Nansen badge",
 				amount: "",
+				resume: { action: "badge" },
 			},
 			[
 				{ id: "pull", label: "Pull signed profile", state: "active" },
 				{ id: "submit", label: "Relay to NanSigil", state: "pending" },
 			],
 		);
+		if (staleId) dismissInFlight(staleId);
 		let step = 0;
 		try {
 			await ensureMonad();
@@ -530,7 +538,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 			// The chip reads `latest` through wagmi, the label through the indexer.
 			await queryClient.invalidateQueries({ queryKey: ["readContract"] });
 			await queryClient.invalidateQueries({ queryKey: ["agents"] });
-			dismissInFlight(flight.id);
+			finishFlight(flight.id, hash);
 		} catch (err) {
 			flight.fail(step, err);
 			throw err;
@@ -573,6 +581,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 			})),
 		);
 		let step = 0;
+		let lastHash: string | undefined;
 		try {
 			await ensureMonad();
 			for (; step < calls.length; step++) {
@@ -583,12 +592,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 					functionName: calls[step].functionName,
 					args: [id, ...calls[step].args],
 				} as never);
+				lastHash = hash;
 				flight.setStep(step, "active", "confirming");
 				await publicClient.waitForTransactionReceipt({ hash });
 				flight.setStep(step, "done");
 			}
 			await queryClient.invalidateQueries({ queryKey: ["agents"] });
-			dismissInFlight(flight.id);
+			finishFlight(flight.id, lastHash);
 		} catch (err) {
 			flight.fail(step, err);
 			throw err;
@@ -695,15 +705,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 			const run =
 				r.action === "register"
 					? registerAgentOnChain(r.input, id)
-					: depositOnMonad(
-							{
-								agentId: e.agentId,
-								chain: r.chain,
-								symbol: r.symbol,
-								amount: r.amount,
-							},
-							id,
-						);
+					: r.action === "badge"
+						? claimNansenBadgeOnChain(id)
+						: depositOnMonad(
+								{
+									agentId: e.agentId,
+									chain: r.chain,
+									symbol: r.symbol,
+									amount: r.amount,
+								},
+								id,
+							);
 			run.catch((err) => console.error("resume failed:", err));
 		},
 	};
