@@ -28,6 +28,7 @@ import {
 	RESET_PERIOD_SECONDS,
 	USDC_DECIMALS,
 } from "./chain";
+import { formatAmount } from "./format";
 import { fetchIndexedActivity, toActivity } from "./indexer";
 import { isResumable, parse, serialize, storageKey } from "./inflight";
 import { pullAttestation } from "./nansigil";
@@ -90,15 +91,6 @@ type StoreValue = {
 	/** Re-runs an interrupted Monad deposit or registration, skipping an approve that already landed. */
 	resumeFlight: (id: string) => void;
 };
-
-const STUB_MESSAGE =
-	"not implemented yet — this plan is read-only; writes land in a later plan";
-
-function stub(name: string) {
-	return (..._args: unknown[]) => {
-		console.warn(`useStore().${name}: ${STUB_MESSAGE}`);
-	};
-}
 
 const EMPTY_AGENTS: Agent[] = [];
 const EMPTY_POSITIONS: Position[] = [];
@@ -597,6 +589,64 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		}
 	}
 
+	/** Burns shares for assets. No resume payload: a redeem that landed must
+	 *  never be replayed from Activity, and there is no approve step to save. */
+	async function redeemOnChain(input: RedeemInput) {
+		if (input.chain !== "monad")
+			throw new Error("Redeem is only available on Monad.");
+		if (!address) throw new Error("connect a wallet first");
+		if (!publicClient) throw new Error("no public client");
+		const agent = agents.find((a) => a.id === input.agentId);
+		if (!agent) throw new Error("unknown agent");
+		const vault = agent.vault.address as `0x${string}`;
+		const shares = BigInt(Math.round(input.shares * 10 ** USDC_DECIMALS));
+
+		const flight = startFlight(
+			{
+				kind: "redeem",
+				key: input.agentId,
+				agentId: input.agentId,
+				title: `Redeem · ${agent.name}`,
+				amount: `${formatAmount(input.shares)} shares`,
+			},
+			[
+				{
+					id: "redeem",
+					label: `Redeem from ${agent.name}`,
+					state: "active",
+				},
+			],
+		);
+		try {
+			await ensureMonad();
+			// Both checks live inside the flight, so either one reaches the screen.
+			if (shares < 1n) throw new Error("Amount is too small to redeem.");
+			const max = (await publicClient.readContract({
+				address: vault,
+				abi: AgentVaultAbi,
+				functionName: "maxRedeem",
+				args: [address],
+			})) as bigint;
+			if (shares > max) throw new Error("More than you can redeem.");
+
+			const hash = await writeContractAsync({
+				address: vault,
+				abi: AgentVaultAbi,
+				functionName: "redeem",
+				args: [shares, address, address],
+			});
+			flight.setStep(0, "active", "confirming");
+			await publicClient.waitForTransactionReceipt({ hash });
+			flight.setStep(0, "done");
+
+			await queryClient.invalidateQueries({ queryKey: ["agents"] });
+			finishFlight(flight.id, hash);
+		} catch (err) {
+			flight.fail(0, err);
+			throw err;
+		}
+	}
+
 	// A union, so a wrong argument for a function is a type error at the call site.
 	type CreatorCall = { label: string } & (
 		| { functionName: "pauseAgent" | "resumeAgent" | "revokeAgent"; args: [] }
@@ -747,7 +797,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 				console.error("subscribe failed:", err),
 			);
 		},
-		redeem: stub("redeem"),
+		redeem: (input) => {
+			redeemOnChain(input).catch((err) => console.error("redeem failed:", err));
+		},
 		dismissInFlight,
 		toasts,
 		dismissToast,

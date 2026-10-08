@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Field, TextInput } from "#/components/ui/fields";
 import {
 	Button,
@@ -16,12 +16,34 @@ export function RedeemPanel({
 	agentId: string;
 	onClose: () => void;
 }) {
-	const { agents, myPositions, redeem } = useStore();
+	const { agents, inFlight, myPositions, redeem } = useStore();
 	const agent = agents.find((a) => a.id === agentId);
 	const position = myPositions.find((p) => p.agentId === agentId);
 
 	const [shares, setShares] = useState("");
 	const [done, setDone] = useState(false);
+
+	const mine = inFlight.filter(
+		(e) => e.kind === "redeem" && e.agentId === agentId,
+	);
+	const flying = mine.some((e) => e.status === "in-progress");
+	const filled = mine.some((e) => e.status === "filled");
+	const failed = mine.some((e) => e.status === "failed");
+	const wasFlying = useRef(false);
+
+	useEffect(() => {
+		if (flying) {
+			wasFlying.current = true;
+			setDone(false);
+			return;
+		}
+		// A failed flight stays "failed" and is not a landing.
+		if (filled && wasFlying.current) {
+			wasFlying.current = false;
+			setDone(true);
+		}
+		if (failed) wasFlying.current = false;
+	}, [flying, filled, failed]);
 
 	useEffect(() => {
 		if (!done) return;
@@ -114,7 +136,6 @@ export function RedeemPanel({
 					onClick={() => {
 						redeem({ agentId, shares: sharesNumber, chain: "monad" });
 						setShares("");
-						setDone(true);
 					}}
 				>
 					Redeem
