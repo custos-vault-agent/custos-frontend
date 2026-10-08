@@ -1,209 +1,105 @@
-Welcome to your new TanStack Start app!
+# Custos web
 
-# Getting Started
+This is the Custos marketplace frontend. Subscribers browse trading agents, deposit USDC into the vault of an agent, and redeem later. Creators register an agent and manage its vault. The app is TanStack Start on Bun. Wallets connect through Privy and wagmi, and the chain is Monad.
 
-To run this application:
+## Pages
+
+| Route | What it does |
+|---|---|
+| `/` | The marketplace list. Search the public vaults and open one. |
+| `/agents/:agentId` | The vault detail page. Share price history, reserve ratio, idle yield, circuit breaker, recent activity, the agent and creator addresses, and the deposit and redeem panels. A creator also sees the edit panel here. |
+| `/profile` | The profile of the connected wallet. A creator registers an agent, edits it, and claims the Nansen badge. A subscriber sees positions and can redeem. |
+| `/activity` | Transactions in flight, then the history of the wallet with a filter (subscribe, redeem, agent trade, vault config). |
+
+## What the app writes on chain
+
+| Action | Who | Contract call |
+|---|---|---|
+| Register an agent | Creator | `CustosCore` register, with the first deposit |
+| Deposit | Subscriber | Approve USDC, then `deposit` on the vault |
+| Redeem | Subscriber | Redeem shares on the vault |
+| Pause, resume, revoke | Creator | `pauseAgent`, `resumeAgent`, `revokeAgent` |
+| Change allowance and period | Creator | `setAllowance`, `setPeriod` |
+| Change marketplace visibility | Creator | `setPublic` |
+| Claim a Nansen badge | Creator | Fetch a signed payload from the attestation service, then submit it to `NanSigil` |
+
+A creator action that changes two values sends one transaction per value, one after the other.
+
+Every write is tracked as a flight. A flight survives a reload. It is kept per wallet in local storage for 24 hours. The Activity page can continue a flight when its last step has not landed. That covers a registration, a Monad deposit, and a badge claim.
+
+An Aurora deposit is never resumable. The transfer may already have left the wallet, and a second run could spend the funds twice.
+
+## Where data comes from
+
+| Data | Source |
+|---|---|
+| Agent list, descriptions | Envio indexer |
+| Share price history | Envio indexer |
+| Badge plaintext (label, PnL, win rate) | Envio indexer |
+| Activity history | Envio indexer |
+| Live vault numbers, share balances | Chain, through Multicall3 |
+| Badge verification | Chain, `NanSigil.verify` |
+
+The badge is shown as verified only when `NanSigil.verify` says so on chain. The indexer supplies the text next to it.
+
+Without the indexer the app still works from the registry on chain. It then has no history and no badge text.
+
+## Environment variables
+
+Copy `.env.example` to `.env`.
+
+| Name | What it does | Public |
+|---|---|---|
+| `VITE_CHAIN_ID` | `10143` for Monad testnet, `143` for Monad mainnet. Default `10143`. | Yes |
+| `VITE_RPC_URL` | RPC endpoint of the chain. Required. | Yes |
+| `VITE_CUSTOS_CORE` | Address of the `CustosCore` proxy. Required. | Yes |
+| `VITE_USDC` | Address of the USDC token. Required. | Yes |
+| `VITE_NANSIGIL` | Address of `NanSigil`. Empty disables the badge. | Yes |
+| `VITE_YIELD_SOURCE` | Yield source allowed by the protocol. Empty means the register form offers no yield option and a vault keeps its USDC idle. | Yes |
+| `VITE_MULTICALL3` | Multicall3 address. Defaults to the canonical `0xcA11bde05977b3631167028862bE2a173976CA11`. | Yes |
+| `VITE_ATTESTATION_URL` | Base URL of the `custos-attestation` service. Empty disables the badge button. | Yes |
+| `VITE_ENVIO_GRAPHQL_URL` | GraphQL endpoint of the Envio indexer. | Yes |
+| `VITE_PRIVY_APP_ID` | Privy app id, needed for wallet login. | Yes |
+| `VITE_AURORA_ENABLED` | `true` turns on cross-chain deposits through Aurora. Default `false`. | Yes |
+| `AURORA_API_KEY` | Aurora API key. Read at runtime by the `/api/aurora` proxy route. | No |
+
+Every `VITE_*` value is compiled into the bundle. A change needs a rebuild, and nothing secret may go in one. `AURORA_API_KEY` has no prefix. The server reads it at runtime, and it never reaches the browser.
+
+## Aurora
+
+Cross-chain deposits use Aurora Intents Connect. The SDK sends its create calls to `/api/aurora`. The route adds the `x-api-key` header and forwards the request to the Aurora API. Without `AURORA_API_KEY` it answers `503`.
+
+CAUTION: THE `/api/aurora` ROUTE HAS NO AUTHENTICATION AND NO RATE LIMIT OF ITS OWN. ANYONE WHO KNOWS THE SITE CAN SPEND THE AURORA QUOTA THROUGH IT. PUT A RATE LIMIT OR AN ACCESS RULE IN FRONT OF IT BEFORE YOU SET THE KEY ON A PUBLIC HOST.
+
+## Commands
 
 ```bash
-bun install
-bun --bun run dev
+cp .env.example .env
+sfw bun install      # in this project the install goes through Socket firewall
+bun run dev          # http://localhost:3000
+bun run build
+bunx tsc --noEmit
+bunx biome check
 ```
 
-# Building For Production
+There is no test runner in this repository. The type check, Biome, and the build are the checks.
 
-To build this application for production:
+## Docker
 
-```bash
-bun --bun run build
-```
+The image has a Bun build stage and a distroless Bun runtime, and it serves on port 3000.
+Every `VITE_*` value is a build argument, because they are compiled in. `AURORA_API_KEY` is set at run time. The root `compose.yaml` passes both.
 
-## Styling
+## What is missing
 
-This project uses [Tailwind CSS](https://tailwindcss.com/) for styling.
+- The subscriber count on a marketplace card is always 0, and a position shows no profit and loss. Both need a cost basis, which needs an indexer query that does not exist yet.
+- The "Smart Money signals" card is placeholder data from `src/mock/smartMoney.ts`.
+- There is no interface for the upgrade authority. Allowing a market for an agent still needs `cast`.
+- Cross-chain deposits stay off. Aurora has no quotable route into or out of Monad, which was checked with dry quotes against its API.
 
-### Removing Tailwind CSS
+## Related repositories
 
-If you prefer not to use Tailwind CSS:
-
-1. Remove the demo pages in `src/routes/demo/`
-2. Replace the Tailwind import in `src/styles.css` with your own styles
-3. Remove `tailwindcss()` from the plugins array in `vite.config.ts`
-4. Remove `@tailwindcss/vite` and `tailwindcss` from `package.json`
-
-## Linting & Formatting
-
-This project uses [Biome](https://biomejs.dev/) for linting and formatting. The following scripts are available:
-
-
-```bash
-bun --bun run lint
-bun --bun run format
-bun --bun run check
-```
-
-
-## Deploy to Vercel
-
-1. Push this repo to GitHub, GitLab, or Bitbucket
-2. In Vercel, choose **Add New > Project** and import the repo
-3. Keep the detected TanStack Start framework settings
-4. Add production values from `.env.example` under **Settings > Environment Variables**
-5. Deploy
-
-Vercel runs the build script and deploys Nitro's output as Vercel Functions and
-static assets. The included `vercel.json` makes framework detection explicit.
-
-Variables prefixed with `VITE_` are included in the browser bundle. Keep secrets
-unprefixed so they remain server-only.
-
-
-
-## Routing
-
-This project uses [TanStack Router](https://tanstack.com/router) with file-based routing. Routes are managed as files in `src/routes`.
-
-### Adding A Route
-
-To add a new route to your application just add a new file in the `./src/routes` directory.
-
-TanStack will automatically generate the content of the route file for you.
-
-Now that you have two routes you can use a `Link` component to navigate between them.
-
-### Adding Links
-
-To use SPA (Single Page Application) navigation you will need to import the `Link` component from `@tanstack/react-router`.
-
-```tsx
-import { Link } from "@tanstack/react-router";
-```
-
-Then anywhere in your JSX you can use it like so:
-
-```tsx
-<Link to="/about">About</Link>
-```
-
-This will create a link that will navigate to the `/about` route.
-
-More information on the `Link` component can be found in the [Link documentation](https://tanstack.com/router/v1/docs/framework/react/api/router/linkComponent).
-
-### Using A Layout
-
-In the File Based Routing setup the layout is located in `src/routes/__root.tsx`. Anything you add to the root route will appear in all the routes. The route content will appear in the JSX where you render `{children}` in the `shellComponent`.
-
-Here is an example layout that includes a header:
-
-```tsx
-import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
-
-export const Route = createRootRoute({
-  head: () => ({
-    meta: [
-      { charSet: 'utf-8' },
-      { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'My App' },
-    ],
-  }),
-  shellComponent: ({ children }) => (
-    <html lang="en">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        <header>
-          <nav>
-            <Link to="/">Home</Link>
-            <Link to="/about">About</Link>
-          </nav>
-        </header>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  ),
-})
-```
-
-More information on layouts can be found in the [Layouts documentation](https://tanstack.com/router/latest/docs/framework/react/guide/routing-concepts#layouts).
-
-## Server Functions
-
-TanStack Start provides server functions that allow you to write server-side code that seamlessly integrates with your client components.
-
-```tsx
-import { createServerFn } from '@tanstack/react-start'
-
-const getServerTime = createServerFn({
-  method: 'GET',
-}).handler(async () => {
-  return new Date().toISOString()
-})
-
-// Use in a component
-function MyComponent() {
-  const [time, setTime] = useState('')
-  
-  useEffect(() => {
-    getServerTime().then(setTime)
-  }, [])
-  
-  return <div>Server time: {time}</div>
-}
-```
-
-## API Routes
-
-You can create API routes by using the `server` property in your route definitions:
-
-```tsx
-import { createFileRoute } from '@tanstack/react-router'
-import { json } from '@tanstack/react-start'
-
-export const Route = createFileRoute('/api/hello')({
-  server: {
-    handlers: {
-      GET: () => json({ message: 'Hello, World!' }),
-    },
-  },
-})
-```
-
-## Data Fetching
-
-There are multiple ways to fetch data in your application. You can use TanStack Query to fetch data from a server. But you can also use the `loader` functionality built into TanStack Router to load the data for a route before it's rendered.
-
-For example:
-
-```tsx
-import { createFileRoute } from '@tanstack/react-router'
-
-export const Route = createFileRoute('/people')({
-  loader: async () => {
-    const response = await fetch('https://swapi.dev/api/people')
-    return response.json()
-  },
-  component: PeopleComponent,
-})
-
-function PeopleComponent() {
-  const data = Route.useLoaderData()
-  return (
-    <ul>
-      {data.results.map((person) => (
-        <li key={person.name}>{person.name}</li>
-      ))}
-    </ul>
-  )
-}
-```
-
-Loaders simplify your data fetching logic dramatically. Check out more information in the [Loader documentation](https://tanstack.com/router/latest/docs/framework/react/guide/data-loading#loader-parameters).
-
-
-
-# Learn More
-
-You can learn more about all of the offerings from TanStack in the [TanStack documentation](https://tanstack.com).
-
-For TanStack Start specific documentation, visit [TanStack Start](https://tanstack.com/start).
+| Repository | Role |
+|---|---|
+| `custos-contract` | CustosCore, AgentVault, VaultFactory |
+| `custos-attestation` | Signing service for the Nansen badge |
+| `custos-indexer` | Envio indexer behind the list, history and badge text |
