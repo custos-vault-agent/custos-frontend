@@ -3,7 +3,9 @@ const H = 240;
 const PAD = { l: 8, r: 8, t: 22, b: 14 };
 
 /** Share price over time with the high-water mark and breaker floor as dashed
- *  guides. The y-scale always spans the series and both guides. */
+ *  guides. The y-scale follows the series and the high-water mark; a breaker
+ *  far below would flatten every real move, so it is pinned to the floor
+ *  instead of stretching the scale. */
 export function SharePriceChart({
 	history,
 	highWaterMark,
@@ -15,20 +17,23 @@ export function SharePriceChart({
 }) {
 	const breaker =
 		maxDrawdownBps > 0 ? highWaterMark * (1 - maxDrawdownBps / 10_000) : null;
-	const values = [
-		highWaterMark,
-		...(breaker === null ? [] : [breaker]),
-		...history.map((p) => p.price),
-	];
-	const min = Math.min(...values);
-	const span = Math.max(...values) - min || 1;
+	const values = [highWaterMark, ...history.map((p) => p.price)];
+	const lo = Math.min(...values);
+	const hi = Math.max(...values);
+	// Yield accrual moves the price by a few parts per million, so an empty span
+	// still needs a readable window.
+	const pad = (hi - lo || Math.max(hi * 1e-5, 1e-6)) * 0.2;
+	const min = lo - pad;
+	const span = hi + pad - min;
 	const innerW = W - PAD.l - PAD.r;
 	const innerH = H - PAD.t - PAD.b;
-	const y = (v: number) => PAD.t + innerH - ((v - min) / span) * innerH;
+	const clamp = (v: number) => Math.min(Math.max(v, min), min + span);
+	const y = (v: number) => PAD.t + innerH - ((clamp(v) - min) / span) * innerH;
 	const x = (i: number) => PAD.l + (i / (history.length - 1)) * innerW;
 
 	const hwmY = y(highWaterMark);
 	const breakerY = breaker === null ? 0 : y(breaker);
+	const breakerBelow = breaker !== null && breaker < min;
 	const enough = history.length >= 2;
 	const coords = history.map((p, i) => [x(i), y(p.price)] as const);
 	const line = coords.map(([cx, cy]) => `${cx.toFixed(1)},${cy.toFixed(1)}`);
@@ -78,7 +83,7 @@ export function SharePriceChart({
 						strokeDasharray="6 4"
 					/>
 					<text x={W - PAD.r} y={breakerY - 5} {...label} fill="var(--cx-sell)">
-						{`breaker −${maxDrawdownBps / 100}%`}
+						{`breaker −${maxDrawdownBps / 100}%${breakerBelow ? " (off scale)" : ""}`}
 					</text>
 				</>
 			)}

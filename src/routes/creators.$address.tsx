@@ -16,6 +16,7 @@ import {
 	formatCompactUsd,
 	formatDay,
 	formatPercent,
+	formatPrice,
 	shortAddress,
 } from "#/lib/format";
 import { fetchIndexedAttestations } from "#/lib/indexer";
@@ -145,7 +146,7 @@ function CreatorPage() {
 								{a.status}
 							</StatusPill>
 							<span className="tnum w-[64px] text-right">
-								{a.vault.sharePrice.toFixed(4)}
+								{formatPrice(a.vault.sharePrice)}
 							</span>
 							<span className="tnum w-[64px] text-right text-dim">
 								{formatCompactUsd(a.vault.totalAssets)}

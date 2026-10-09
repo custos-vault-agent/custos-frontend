@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import {
 	formatCompactUsd,
 	formatPercent,
+	formatPrice,
 	livenessPill,
 	shortAddress,
 } from "#/lib/format";
@@ -110,7 +111,7 @@ export function AgentSealBadge({
 							sharePriceChangePct < 0 ? "text-sell" : "text-accent",
 						)}
 					>
-						{agent.vault.sharePrice.toFixed(4)}
+						{formatPrice(agent.vault.sharePrice)}
 					</div>
 					<Label className="text-[14px] tracking-[1px]">
 						share price {fresh ? "" : formatPercent(sharePriceChangePct, 1)}

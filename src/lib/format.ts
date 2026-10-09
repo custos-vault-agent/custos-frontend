@@ -24,11 +24,14 @@ export function formatCompactUsd(value: number): string {
 
 export function formatPercent(value: number, decimals = 2): string {
 	const sign = value > 0 ? "+" : "";
-	return `${sign}${value.toFixed(decimals)}%`;
+	// Idle yield moves a share price by parts per million; 2 decimals would print 0.00%.
+	const d = value !== 0 && Math.abs(value) < 0.01 ? 4 : decimals;
+	return `${sign}${value.toFixed(d)}%`;
 }
 
+/** USDC has 6 decimals, and that is the precision a share price actually carries. */
 export function formatPrice(value: number): string {
-	return value.toFixed(4);
+	return value.toFixed(6);
 }
 
 export function shortAddress(address: string, lead = 6, tail = 4): string {

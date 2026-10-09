@@ -10,7 +10,12 @@ import {
 	Label,
 } from "#/components/ui/primitives";
 import { Sigil } from "#/components/ui/Sigil";
-import { formatAmount, formatCompactUsd, formatPercent } from "#/lib/format";
+import {
+	formatAmount,
+	formatCompactUsd,
+	formatPercent,
+	formatPrice,
+} from "#/lib/format";
 import { useStore } from "#/lib/store";
 import type { Agent } from "#/lib/types";
 
@@ -168,7 +173,7 @@ function LeaderboardPage() {
 											{agent.stats.subscribers}
 										</td>
 										<td className="px-3 py-2 text-right">
-											{agent.vault.sharePrice.toFixed(4)}
+											{formatPrice(agent.vault.sharePrice)}
 										</td>
 										<td className="px-3 py-2 text-right">
 											{agent.stats.dollarReturn === null

@@ -28,6 +28,7 @@ import {
 	formatDay,
 	formatDuration,
 	formatPercent,
+	formatPrice,
 	livenessPill,
 	moneyWeightedReturn,
 	shortAddress,
@@ -213,7 +214,7 @@ function VaultDetailPage() {
 						<div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
 							<div className="flex items-baseline gap-3">
 								<span className="tnum text-[32px]">
-									{agent.vault.sharePrice.toFixed(4)}
+									{formatPrice(agent.vault.sharePrice)}
 								</span>
 								{change === null ? null : (
 									<span
@@ -222,8 +223,7 @@ function VaultDetailPage() {
 											change < 0 ? "text-sell" : "text-accent",
 										)}
 									>
-										{change >= 0 ? "+" : ""}
-										{change.toFixed(2)}%
+										{formatPercent(change)}
 									</span>
 								)}
 							</div>
