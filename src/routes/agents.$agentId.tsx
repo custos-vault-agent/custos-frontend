@@ -1,12 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { ActivityRow } from "#/components/activity/ActivityRow";
 import { NansenBadgeChip } from "#/components/NansenBadge";
 import {
 	DrawdownGauge,
 	ReserveRatioBar,
 	ReserveRatioLegend,
-	SharePriceSpark,
 } from "#/components/ui/meters";
 import {
 	Button,
@@ -20,9 +18,11 @@ import {
 } from "#/components/ui/primitives";
 import { Sigil } from "#/components/ui/Sigil";
 import { RedeemPanel } from "#/components/vault/RedeemPanel";
+import { SharePriceChart } from "#/components/vault/SharePriceChart";
 import { SubscribeFlow } from "#/components/vault/SubscribeFlow";
 import {
 	formatAmount,
+	formatClock,
 	formatCompactUsd,
 	formatDay,
 	shortAddress,
@@ -72,9 +72,9 @@ function VaultDetailPage() {
 	}
 
 	const position = myPositions.find((p) => p.agentId === agentId);
-	const vaultActivity = history
-		.filter((e) => e.agentId === agentId)
-		.slice(0, 10);
+	const trades = history
+		.filter((e) => e.agentId === agentId && e.kind === "agent-trade")
+		.sort((a, b) => b.timestamp - a.timestamp);
 	const signals = smartMoneyFor(agentId);
 
 	const reserved =
@@ -84,6 +84,13 @@ function VaultDetailPage() {
 	const revoked = agent.status === "revoked";
 
 	const yourValue = position ? position.shares * agent.vault.sharePrice : 0;
+	const { sharePriceHistory: series, highWaterMark: hwm } = agent.vault;
+	const change =
+		series.length >= 2 && series[0].price > 0
+			? (agent.vault.sharePrice / series[0].price - 1) * 100
+			: null;
+	const drawdown =
+		hwm > 0 ? Math.max(0, (1 - agent.vault.sharePrice / hwm) * 100) : 0;
 	const yourPnl =
 		position?.depositedAssets === undefined
 			? null
@@ -145,37 +152,60 @@ function VaultDetailPage() {
 				</Card>
 
 				<Card>
-					<CardHeader title="Vault" meta={agent.vault.address.slice(0, 10)} />
+					<div className="flex items-center gap-3 border-b-2 border-edge px-3 py-2">
+						<Sigil address={agent.agentAddress} size="sm" />
+						<Label className="truncate">{agent.name} · share price</Label>
+						<div className="ml-auto">
+							<StatusPill tone={revoked ? "fail" : paused ? "neutral" : "ok"}>
+								{agent.status}
+							</StatusPill>
+						</div>
+					</div>
 					<div className="space-y-3 p-3">
-						<div className="flex items-end justify-between gap-3">
-							<div>
-								<div className="tnum text-[32px]">
+						<div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+							<div className="flex items-baseline gap-3">
+								<span className="tnum text-[32px]">
 									{agent.vault.sharePrice.toFixed(4)}
-								</div>
-								<Label>share price</Label>
+								</span>
+								{change === null ? null : (
+									<span
+										className={cx(
+											"tnum text-[17px]",
+											change < 0 ? "text-sell" : "text-accent",
+										)}
+									>
+										{change >= 0 ? "+" : ""}
+										{change.toFixed(2)}%
+									</span>
+								)}
 							</div>
-							<SharePriceSpark
-								history={agent.vault.sharePriceHistory}
-								width={160}
-								height={44}
-							/>
+							<div className="flex gap-5">
+								<div>
+									<Label className="text-[14px] tracking-[1px]">
+										high water mark
+									</Label>
+									<div className="tnum text-[20px]">{hwm.toFixed(4)}</div>
+								</div>
+								<div>
+									<Label className="text-[14px] tracking-[1px]">drawdown</Label>
+									<div className="tnum text-[20px]">{drawdown.toFixed(1)}%</div>
+								</div>
+								<div>
+									<Label className="text-[14px] tracking-[1px]">TVL</Label>
+									<div className="tnum text-[20px]">
+										{formatCompactUsd(agent.vault.totalAssets)}
+									</div>
+								</div>
+							</div>
 						</div>
 
-						<div className="grid grid-cols-2 gap-3 border-t border-edge pt-2 sm:grid-cols-4">
-							<div>
-								<div className="tnum text-[20px]">
-									{formatCompactUsd(agent.vault.totalAssets)}
-								</div>
-								<Label className="text-[14px] tracking-[1px]">TVL</Label>
-							</div>
-							<div>
-								<div className="tnum text-[20px]">
-									{agent.vault.highWaterMark.toFixed(4)}
-								</div>
-								<Label className="text-[14px] tracking-[1px]">
-									high water mark
-								</Label>
-							</div>
+						<SharePriceChart
+							history={series}
+							highWaterMark={hwm}
+							maxDrawdownBps={agent.vault.maxDrawdownBps}
+						/>
+
+						<div className="grid grid-cols-2 gap-3 border-t border-edge pt-2">
 							<div>
 								<div className="tnum text-[20px]">
 									{(agent.vault.feeRateBps / 100).toFixed(1)}%
@@ -191,28 +221,6 @@ function VaultDetailPage() {
 								</Label>
 							</div>
 						</div>
-
-						{position ? (
-							<div className="border-t border-edge pt-2">
-								<Label>Your position</Label>
-								<div className="mt-1 flex items-baseline gap-3">
-									<span className="tnum text-[21px]">
-										{formatAmount(yourValue)} USDC
-									</span>
-									{yourPnl === null ? null : (
-										<span
-											className={cx(
-												"tnum text-[17px]",
-												yourPnl < 0 ? "text-sell" : "text-accent",
-											)}
-										>
-											{yourPnl >= 0 ? "+" : ""}
-											{formatAmount(yourPnl)} P/L
-										</span>
-									)}
-								</div>
-							</div>
-						) : null}
 					</div>
 				</Card>
 
@@ -297,22 +305,6 @@ function VaultDetailPage() {
 						</div>
 					)}
 				</Card>
-
-				<Card>
-					<CardHeader title="Recent activity" />
-					{vaultActivity.length === 0 ? (
-						<Empty
-							title="Nothing recorded on this vault yet"
-							hint="Trades, subscribes and redeems will show up here."
-						/>
-					) : (
-						<div>
-							{vaultActivity.map((entry) => (
-								<ActivityRow key={entry.id} entry={entry} />
-							))}
-						</div>
-					)}
-				</Card>
 			</div>
 
 			<aside className="w-full space-y-3 lg:sticky lg:top-[70px] lg:w-[390px] lg:shrink-0">
@@ -321,25 +313,90 @@ function VaultDetailPage() {
 				) : panel === "redeem" ? (
 					<RedeemPanel agentId={agent.id} onClose={() => setPanel("none")} />
 				) : (
-					<Card>
-						<div className="flex gap-2 p-3">
-							<Button
-								variant="solid"
-								size="lg"
-								className="flex-1"
-								onClick={() => setPanel("subscribe")}
-							>
-								Subscribe
-							</Button>
-							<Button
-								size="lg"
-								className="flex-1"
-								onClick={() => setPanel("redeem")}
-							>
-								Redeem
-							</Button>
-						</div>
-					</Card>
+					<>
+						<Card>
+							<CardHeader title="Your position" />
+							{position && position.shares > 0 ? (
+								<div className="space-y-1 p-3">
+									<div className="flex items-baseline gap-3">
+										<span className="tnum text-[21px]">
+											{formatAmount(yourValue)} USDC
+										</span>
+										{yourPnl === null ? null : (
+											<span
+												className={cx(
+													"tnum text-[17px]",
+													yourPnl < 0 ? "text-sell" : "text-accent",
+												)}
+											>
+												{yourPnl >= 0 ? "+" : ""}
+												{formatAmount(yourPnl)} P/L
+											</span>
+										)}
+									</div>
+									<div className="tnum text-[17px] text-dim">
+										{formatAmount(position.shares)} shares
+									</div>
+								</div>
+							) : (
+								<Empty
+									title="No position yet"
+									hint="Subscribe to start earning with this agent."
+								/>
+							)}
+						</Card>
+
+						<Card>
+							<div className="flex gap-2 p-3">
+								<Button
+									variant="solid"
+									size="lg"
+									className="flex-1"
+									onClick={() => setPanel("subscribe")}
+								>
+									Subscribe
+								</Button>
+								<Button
+									size="lg"
+									className="flex-1"
+									onClick={() => setPanel("redeem")}
+								>
+									Redeem
+								</Button>
+							</div>
+						</Card>
+
+						<Card>
+							<CardHeader title="Agent trades" />
+							{trades.length === 0 ? (
+								<Empty
+									title="No trades yet"
+									hint="Swaps this agent makes will show up here."
+								/>
+							) : (
+								// Fixed height: a long trade log must not stretch the page.
+								<div className="max-h-[320px] divide-y divide-edge overflow-y-auto">
+									{trades.map((t) => (
+										<div key={t.id} className="flex gap-3 p-3 text-[17px]">
+											<span className="tnum w-[52px] shrink-0 text-dim">
+												{formatClock(t.timestamp)}
+											</span>
+											<div className="min-w-0">
+												<div className="truncate">
+													{t.title.split(" · ")[0]} · {t.amount}
+												</div>
+												{t.amountSub ? (
+													<div className="tnum text-[16px] text-dim">
+														{t.amountSub}
+													</div>
+												) : null}
+											</div>
+										</div>
+									))}
+								</div>
+							)}
+						</Card>
+					</>
 				)}
 			</aside>
 		</div>
