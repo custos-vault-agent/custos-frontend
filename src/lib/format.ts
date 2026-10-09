@@ -34,6 +34,11 @@ export function formatPrice(value: number): string {
 	return value.toFixed(6);
 }
 
+/** Curation enforces a USDC quote, so a market reads as a pair plus its address. */
+export function marketLabel(baseSymbol: string, market: string): string {
+	return `${baseSymbol}/USDC (${shortAddress(market)})`;
+}
+
 export function shortAddress(address: string, lead = 6, tail = 4): string {
 	if (address.length <= lead + tail + 1) return address;
 	return `${address.slice(0, lead)}…${address.slice(-tail)}`;

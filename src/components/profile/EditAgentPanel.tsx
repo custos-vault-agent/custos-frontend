@@ -8,6 +8,7 @@ import {
 	Label,
 } from "#/components/ui/primitives";
 import { Sigil } from "#/components/ui/Sigil";
+import { marketLabel } from "#/lib/format";
 import { useStore } from "#/lib/store";
 import type { Agent, ResetPeriod } from "#/lib/types";
 
@@ -125,7 +126,7 @@ export function EditAgentPanel({
 										setAgentMarket(agent.id, m.market, e.target.checked)
 									}
 								/>
-								{m.baseSymbol}
+								{marketLabel(m.baseSymbol, m.market)}
 								{m.allowed && m.heldByVault ? (
 									<span className="ml-auto text-[16px] text-dim">
 										vault still holds {m.baseSymbol}

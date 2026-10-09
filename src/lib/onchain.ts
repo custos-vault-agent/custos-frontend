@@ -11,7 +11,7 @@ import {
 	monadChain,
 	secondsToResetPeriod,
 } from "./chain";
-import { moneyWeightedReturn, shortAddress } from "./format";
+import { moneyWeightedReturn } from "./format";
 import { fetchIndexedAgents, type MarketMeta } from "./indexer";
 import type {
 	Agent,
@@ -179,7 +179,8 @@ async function readCuratedMarkets(
 	return curated.map((market, j) => ({
 		market,
 		baseToken: bases[j],
-		baseSymbol: meta.get(market.toLowerCase())?.symbol ?? shortAddress(market),
+		// "?" not the address: marketLabel already prints the address beside it.
+		baseSymbol: meta.get(market.toLowerCase())?.symbol ?? "?",
 	}));
 }
 

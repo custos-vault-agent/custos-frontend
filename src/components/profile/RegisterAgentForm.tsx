@@ -17,7 +17,7 @@ import {
 	monadChain,
 	USDC_DECIMALS,
 } from "#/lib/chain";
-import { shortAddress } from "#/lib/format";
+import { marketLabel, shortAddress } from "#/lib/format";
 import { useStore } from "#/lib/store";
 import type { ResetPeriod } from "#/lib/types";
 
@@ -319,12 +319,12 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 											)
 										}
 									/>
-									{m.baseSymbol}
+									{marketLabel(m.baseSymbol, m.market)}
 								</label>
 							))}
 							<p className="border-l-2 border-edge pl-2 text-[16px] text-dim">
-								Pick at least one. Each is enabled with its own transaction
-								after registration.
+								Pick at least one. They are allowed on the vault in the same
+								transaction that registers the agent.
 							</p>
 						</>
 					)}

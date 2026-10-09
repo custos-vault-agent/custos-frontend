@@ -17,7 +17,7 @@ export function MarketFlowList({ flows }: { flows: MarketFlow[] }) {
 			{flows.map((f) => (
 				<div key={f.market} className="flex items-center gap-3 p-3 text-[17px]">
 					<span className="w-[64px] shrink-0 truncate" title={f.market}>
-						{f.symbol}
+						{`${f.symbol}/USDC`}
 					</span>
 					<StatusPill
 						tone={
