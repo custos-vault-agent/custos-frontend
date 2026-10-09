@@ -291,6 +291,11 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 					vault, up to its allowance. It cannot withdraw or transfer funds.
 				</p>
 
+				<p className="border-l-2 border-edge pl-2 text-[16px] text-dim">
+					A new vault trades nothing yet. Pick its markets in Edit agent once
+					this is registered.
+				</p>
+
 				<Button
 					variant="solid"
 					size="lg"

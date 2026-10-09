@@ -24,6 +24,8 @@ const REASONS: Record<string, string> = {
 	MarketStillHeld:
 		"The vault still holds this market's token. Wait for the agent to sell it.",
 	MarketNotAllowed: "This agent isn't allowed to trade that market.",
+	NoPriceFeed:
+		"That market's token has no price feed, so the vault cannot value it.",
 	MarketQuoteMismatch: "That market doesn't quote in USDC.",
 	StalePrice:
 		"The price feed for this vault's position is stale. Try again in a few minutes.",
