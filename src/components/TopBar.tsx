@@ -10,6 +10,7 @@ import { Sigil } from "./ui/Sigil";
 
 const NAV = [
 	{ to: "/", label: "agents" },
+	{ to: "/leaderboard", label: "leaderboard" },
 	{ to: "/activity", label: "activity" },
 	{ to: "/profile", label: "profile" },
 ] as const;

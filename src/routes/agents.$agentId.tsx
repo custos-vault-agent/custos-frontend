@@ -221,6 +221,47 @@ function VaultDetailPage() {
 								</Label>
 							</div>
 						</div>
+
+						<div className="grid grid-cols-2 gap-3 border-t border-edge pt-2 sm:grid-cols-4">
+							<div>
+								<div
+									className={cx(
+										"tnum text-[20px]",
+										agent.stats.realizedPnl < 0 ? "text-sell" : "text-accent",
+									)}
+								>
+									{agent.stats.realizedPnl >= 0 ? "+" : "-"}$
+									{formatAmount(Math.abs(agent.stats.realizedPnl))}
+								</div>
+								<Label className="text-[14px] tracking-[1px]">
+									realized p/l
+								</Label>
+							</div>
+							<div>
+								<div className="tnum text-[20px]">
+									{agent.stats.winRatePct === null
+										? "—"
+										: `${agent.stats.winRatePct.toFixed(0)}%`}
+								</div>
+								<Label className="text-[14px] tracking-[1px]">win rate</Label>
+							</div>
+							<div>
+								<div className="tnum text-[20px]">
+									{agent.stats.closedTrades}
+								</div>
+								<Label className="text-[14px] tracking-[1px]">
+									closed trades
+								</Label>
+							</div>
+							<div>
+								<div className="tnum text-[20px]">
+									{agent.stats.subscribers}
+								</div>
+								<Label className="text-[14px] tracking-[1px]">
+									subscribers
+								</Label>
+							</div>
+						</div>
 					</div>
 				</Card>
 

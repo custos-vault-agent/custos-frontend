@@ -29,6 +29,11 @@ export type IndexedAgent = {
 	nansenPnl: bigint | null;
 	nansenWinRate: number | null;
 	nansenAttestedAt: number | null;
+	subscriberCount: number;
+	yieldDeployed: bigint;
+	realizedPnl: bigint;
+	closedCount: number;
+	winCount: number;
 };
 
 export type IndexedPricePoint = {
@@ -40,15 +45,46 @@ export type IndexedPricePoint = {
 	source: "seed" | "swap" | "breaker";
 };
 
-const QUERY = `
-query Agents($chainId: Int!) {
+export type IndexedPosition = {
+	agent: string;
+	vault: string;
+	shares: bigint;
+	assetsIn: bigint;
+	assetsOut: bigint;
+};
+
+export type IndexedSnapshot = {
+	agent: string;
+	timestamp: number;
+	sharePrice: bigint;
+	totalAssets: bigint;
+	subscriberCount: number;
+};
+
+// The position table is only queried for a connected holder.
+const buildQuery = (withHolder: boolean) => `
+query Agents($chainId: Int!, $since: Int!${withHolder ? ", $holder: String!" : ""}) {
   Agent(where: { chainId: { _eq: $chainId } }, order_by: { registeredAt: asc }) {
     id creator wallet vault name description feeRate isPublic registeredAt swapCount volume
     nansenLabel nansenPnl nansenWinRate nansenAttestedAt
+    subscriberCount yieldDeployed realizedPnl closedCount winCount
   }
   SharePricePoint(where: { chainId: { _eq: $chainId } }, order_by: { timestamp: asc }) {
     agent timestamp sharePrice totalAssets notional source
   }
+  Market(where: { chainId: { _eq: $chainId } }) {
+    id baseSymbol baseDecimals
+  }
+  AgentSnapshot(where: { chainId: { _eq: $chainId }, timestamp: { _gte: $since } }, order_by: { timestamp: asc }, limit: 10000) {
+    agent timestamp sharePrice totalAssets subscriberCount
+  }${
+		withHolder
+			? `
+  VaultPosition(where: { chainId: { _eq: $chainId }, holder: { _eq: $holder } }) {
+    agent vault shares assetsIn assetsOut
+  }`
+			: ""
+	}
 }`;
 
 /** Hasura returns BigInt columns as strings. */
@@ -57,16 +93,34 @@ const big = (v: unknown) => BigInt(String(v));
 export type IndexedData = {
 	agents: IndexedAgent[];
 	pointsByAgent: Map<string, IndexedPricePoint[]>;
+	snapshotsByAgent: Map<string, IndexedSnapshot[]>;
+	/** Keyed by lowercased agent id. Empty without a holder. */
+	positionsByAgent: Map<string, IndexedPosition>;
+	/** Keyed by lowercased market address. */
+	markets: Map<string, MarketMeta>;
 };
+
+export type MarketMeta = { symbol: string; decimals: number };
+
+const THIRTY_DAYS = 30 * 24 * 60 * 60;
 
 export async function fetchIndexedAgents(
 	chainId: number,
+	holder?: string,
 ): Promise<IndexedData | null> {
 	if (!GRAPHQL_URL) return null;
+	const since = Math.floor(Date.now() / 1000) - THIRTY_DAYS;
 	const res = await fetch(GRAPHQL_URL, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({ query: QUERY, variables: { chainId } }),
+		body: JSON.stringify({
+			query: buildQuery(!!holder),
+			variables: {
+				chainId,
+				since,
+				...(holder ? { holder: holder.toLowerCase() } : {}),
+			},
+		}),
 	});
 	if (!res.ok) throw new Error(`indexer ${res.status}`);
 	const { data, errors } = await res.json();
@@ -84,6 +138,11 @@ export async function fetchIndexedAgents(
 			nansenWinRate: a.nansenWinRate == null ? null : Number(a.nansenWinRate),
 			nansenAttestedAt:
 				a.nansenAttestedAt == null ? null : Number(a.nansenAttestedAt),
+			subscriberCount: Number(a.subscriberCount ?? 0),
+			yieldDeployed: big(a.yieldDeployed ?? 0),
+			realizedPnl: big(a.realizedPnl ?? 0),
+			closedCount: Number(a.closedCount ?? 0),
+			winCount: Number(a.winCount ?? 0),
 		}),
 	);
 
@@ -101,7 +160,40 @@ export async function fetchIndexedAgents(
 		});
 		pointsByAgent.set(key, list);
 	}
-	return { agents, pointsByAgent };
+
+	const snapshotsByAgent = new Map<string, IndexedSnapshot[]>();
+	for (const p of (data.AgentSnapshot ?? []) as Record<string, unknown>[]) {
+		const key = String(p.agent).toLowerCase();
+		const list = snapshotsByAgent.get(key) ?? [];
+		list.push({
+			agent: key,
+			timestamp: Number(p.timestamp),
+			sharePrice: big(p.sharePrice),
+			totalAssets: big(p.totalAssets),
+			subscriberCount: Number(p.subscriberCount),
+		});
+		snapshotsByAgent.set(key, list);
+	}
+
+	const positionsByAgent = new Map<string, IndexedPosition>();
+	for (const p of (data.VaultPosition ?? []) as Record<string, unknown>[]) {
+		const agent = String(p.agent).toLowerCase();
+		positionsByAgent.set(agent, {
+			agent,
+			vault: String(p.vault),
+			shares: big(p.shares),
+			assetsIn: big(p.assetsIn),
+			assetsOut: big(p.assetsOut),
+		});
+	}
+
+	const markets = new Map<string, MarketMeta>(
+		((data.Market ?? []) as Record<string, unknown>[]).map((m) => [
+			String(m.id).toLowerCase(),
+			{ symbol: String(m.baseSymbol), decimals: Number(m.baseDecimals) },
+		]),
+	);
+	return { agents, pointsByAgent, snapshotsByAgent, positionsByAgent, markets };
 }
 
 const ACTIVITY_TABLES = [
@@ -157,7 +249,8 @@ const usdc = (v: unknown) => `${formatAmount(fromTokenUnits(big(v)))} USDC`;
 export function toActivity(
 	rows: Partial<ActivityRows>,
 	agentsByVault: Map<string, VaultAgent>,
-	base: { symbol: string; decimals: number } | null,
+	base: MarketMeta | null,
+	markets: Map<string, MarketMeta> = new Map(),
 ): ActivityEntry[] {
 	const out: ActivityEntry[] = [];
 	const add = (
@@ -203,20 +296,23 @@ export function toActivity(
 		title: `Seed · ${a.name}`,
 		amount: usdc(r.assets),
 	}));
-	add("AgentVault_SwapExecuted", (r, a) => ({
-		kind: "agent-trade",
-		actor: {
-			kind: "agent",
-			agentId: a.id,
-			name: a.name,
-			address: a.agentAddress,
-		},
-		title: `${r.isBuy ? "Buy" : "Sell"} · ${a.name}`,
-		amount: usdc(r.notionalCharged),
-		amountSub: base
-			? `${formatAmount(Number(formatUnits(big(r.baseAmount), base.decimals)))} ${base.symbol}`
-			: undefined,
-	}));
+	add("AgentVault_SwapExecuted", (r, a) => {
+		const token = markets.get(String(r.market).toLowerCase()) ?? base;
+		return {
+			kind: "agent-trade",
+			actor: {
+				kind: "agent",
+				agentId: a.id,
+				name: a.name,
+				address: a.agentAddress,
+			},
+			title: `${r.isBuy ? "Buy" : "Sell"} · ${a.name}`,
+			amount: usdc(r.notionalCharged),
+			amountSub: token
+				? `${formatAmount(Number(formatUnits(big(r.baseAmount), token.decimals)))} ${token.symbol}`
+				: undefined,
+		};
+	});
 	add("AgentVault_FeeMinted", (r, a) => ({
 		kind: "fee-mint",
 		actor: owner(r.creator, "creator"),

@@ -11,7 +11,7 @@ import {
 	monadChain,
 	secondsToResetPeriod,
 } from "./chain";
-import { fetchIndexedAgents } from "./indexer";
+import { fetchIndexedAgents, type MarketMeta } from "./indexer";
 import type { Agent, AgentStatus, NansenBadge, Position } from "./types";
 
 const DEAD_ADDRESS = "0x0000000000000000000000000000000000000001" as const;
@@ -148,6 +148,7 @@ export async function fetchAgents(
 	agents: Agent[];
 	positions: Position[];
 	base: BaseToken | null;
+	markets: Map<string, MarketMeta>;
 }> {
 	// The RPC decides which chain this really is. A VITE_RPC_URL that points at a
 	// different network than VITE_CHAIN_ID makes the wallet ask for the wrong chain
@@ -162,7 +163,7 @@ export async function fetchAgents(
 
 	const base = await fetchBaseToken(publicClient);
 
-	const indexed = await fetchIndexedAgents(chainId).catch((err) => {
+	const indexed = await fetchIndexedAgents(chainId, account).catch((err) => {
 		console.warn("indexer unavailable, listing from chain:", err);
 		return null;
 	});
@@ -181,9 +182,13 @@ export async function fetchAgents(
 				})),
 			}
 		: await listFromChain(publicClient);
-	if (ids.length === 0) return { agents: [], positions: [], base };
+	const markets = indexed?.markets ?? new Map<string, MarketMeta>();
+	if (ids.length === 0) return { agents: [], positions: [], base, markets };
 	const descriptionById = new Map(
 		indexed?.agents.map((a) => [a.id.toLowerCase(), a.description]) ?? [],
+	);
+	const indexedById = new Map(
+		indexed?.agents.map((a) => [a.id.toLowerCase(), a]) ?? [],
 	);
 
 	const vaultCalls = records.flatMap(
@@ -328,6 +333,8 @@ export async function fetchAgents(
 		const sharePrice = v.totalSupply > 0n ? totalAssets / totalShares : 1;
 		const registeredAtMs = Number(r.registeredAt) * 1000;
 		const points = indexed?.pointsByAgent.get(ids[i].toLowerCase()) ?? [];
+		const snapshots = indexed?.snapshotsByAgent.get(ids[i].toLowerCase()) ?? [];
+		const row = indexedById.get(ids[i].toLowerCase());
 		const since = Math.floor(Date.now() / 1000) - THIRTY_DAYS;
 		const recent = points.filter((p) => p.timestamp >= since);
 		const swaps30d = recent.filter((p) => p.source === "swap");
@@ -361,11 +368,13 @@ export async function fetchAgents(
 				// price as the last point. Without the indexer: 1.0 at registration
 				// and the live price now.
 				sharePriceHistory: [
-					...(points.length > 0
-						? points.map((p) => ({
-								t: p.timestamp * 1000,
-								price: fromSharePriceUnits(p.sharePrice),
-							}))
+					...(points.length > 0 || snapshots.length > 0
+						? [...points, ...snapshots]
+								.map((p) => ({
+									t: p.timestamp * 1000,
+									price: fromSharePriceUnits(p.sharePrice),
+								}))
+								.sort((x, y) => x.t - y.t)
 						: [{ t: registeredAtMs, price: 1 }]),
 					{ t: Date.now(), price: sharePrice },
 				],
@@ -392,21 +401,31 @@ export async function fetchAgents(
 				),
 				trades30d: swaps30d.length,
 				pnl30d: priceThen > 0 ? totalAssets * (1 - priceThen / sharePrice) : 0,
+				subscribers: row?.subscriberCount ?? 0,
+				realizedPnl: row ? fromTokenUnits(row.realizedPnl) : 0,
+				closedTrades: row?.closedCount ?? 0,
+				winRatePct:
+					row && row.closedCount > 0
+						? (row.winCount / row.closedCount) * 100
+						: null,
 			},
 		};
 		return agent;
 	});
 
-	const positions = vaultDataByIndex.flatMap((v, i) =>
-		v.shares > 0n && account
-			? [
-					{
-						agentId: ids[i],
-						subscriberAddress: account,
-						shares: fromTokenUnits(v.shares),
-					},
-				]
-			: [],
-	);
-	return { agents, positions, base };
+	const positions = vaultDataByIndex.flatMap((v, i) => {
+		if (v.shares <= 0n || !account) return [];
+		const row = indexed?.positionsByAgent.get(ids[i].toLowerCase());
+		return [
+			{
+				agentId: ids[i],
+				subscriberAddress: account,
+				shares: fromTokenUnits(v.shares),
+				depositedAssets: row
+					? fromTokenUnits(row.assetsIn - row.assetsOut)
+					: undefined,
+			},
+		];
+	});
+	return { agents, positions, base, markets };
 }

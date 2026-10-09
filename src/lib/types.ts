@@ -21,6 +21,12 @@ export type AgentStats = {
 	volume30d: number;
 	trades30d: number;
 	pnl30d: number;
+	subscribers: number;
+	/** Realized USDC P/L over completed sell roundtrips. */
+	realizedPnl: number;
+	closedTrades: number;
+	/** Null until a roundtrip has closed. */
+	winRatePct: number | null;
 };
 
 /**

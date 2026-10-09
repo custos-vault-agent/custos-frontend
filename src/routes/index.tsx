@@ -19,47 +19,23 @@ const SORTS: { id: Sort; label: string }[] = [
 	{ id: "newest", label: "newest" },
 ];
 
-function subscriberCount(
-	agent: Agent,
-	positionsByAgent: Map<string, number>,
-): number {
-	return positionsByAgent.get(agent.id) ?? 0;
-}
-
-function compare(
-	sort: Sort,
-	a: Agent,
-	b: Agent,
-	positionsByAgent: Map<string, number>,
-): number {
+function compare(sort: Sort, a: Agent, b: Agent): number {
 	switch (sort) {
 		case "sharePrice":
 			return b.vault.sharePrice - a.vault.sharePrice;
 		case "tvl":
 			return b.vault.totalAssets - a.vault.totalAssets;
 		case "subscribers":
-			return (
-				subscriberCount(b, positionsByAgent) -
-				subscriberCount(a, positionsByAgent)
-			);
+			return b.stats.subscribers - a.stats.subscribers;
 		case "newest":
 			return b.registeredAt - a.registeredAt;
 	}
 }
 
 function MarketplacePage() {
-	const { agents, agentsLoading, positions } = useStore();
+	const { agents, agentsLoading } = useStore();
 	const [query, setQuery] = useState("");
 	const [sort, setSort] = useState<Sort>("tvl");
-
-	const positionsByAgent = useMemo(() => {
-		const map = new Map<string, number>();
-		for (const p of positions) {
-			if (p.shares <= 0) continue;
-			map.set(p.agentId, (map.get(p.agentId) ?? 0) + 1);
-		}
-		return map;
-	}, [positions]);
 
 	const visible = useMemo(() => {
 		const needle = query.trim().toLowerCase();
@@ -73,8 +49,8 @@ function MarketplacePage() {
 					agent.agentAddress.toLowerCase().includes(needle),
 			)
 			.slice()
-			.sort((a, b) => compare(sort, a, b, positionsByAgent));
-	}, [agents, query, sort, positionsByAgent]);
+			.sort((a, b) => compare(sort, a, b));
+	}, [agents, query, sort]);
 
 	return (
 		<div>
@@ -124,7 +100,7 @@ function MarketplacePage() {
 						>
 							<AgentSealBadge
 								agent={agent}
-								subscriberCount={subscriberCount(agent, positionsByAgent)}
+								subscriberCount={agent.stats.subscribers}
 								// 40ms per card, capped: past the first screen it would only delay.
 								style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
 							/>
