@@ -58,6 +58,16 @@ const ALLOWED_MARKETS_ABI = [
 	},
 ] as const;
 
+const SEED_SHARES_ABI = [
+	{
+		type: "function",
+		name: "seedShares",
+		inputs: [],
+		outputs: [{ type: "uint256" }],
+		stateMutability: "view",
+	},
+] as const;
+
 const BASE_TOKEN_ABI = [
 	{
 		type: "function",
@@ -358,8 +368,6 @@ export async function fetchAgents(
 					functionName: "maxUtilizationBps",
 				},
 				{ address: r.vault, abi: AgentVaultAbi, functionName: "yieldSource" },
-				// The creator's locked seed. Only dust sits at the dead address now.
-				{ address: r.vault, abi: AgentVaultAbi, functionName: "seedShares" },
 				{
 					address: r.vault,
 					abi: AgentVaultAbi,
@@ -373,12 +381,25 @@ export async function fetchAgents(
 				},
 			] as const,
 	);
+	// Vaults deployed before the seed change have no `seedShares`, and a failure inside
+	// the strict batch below would drop every agent, so this read stands on its own.
+	const seedShares = (
+		await publicClient.multicall({
+			contracts: records.map((r) => ({
+				address: r.vault,
+				abi: SEED_SHARES_ABI,
+				functionName: "seedShares" as const,
+			})),
+			allowFailure: true,
+		})
+	).map((r) => (r.status === "success" ? (r.result as bigint) : 0n));
+
 	const vaultResults = (await publicClient.multicall({
 		contracts: vaultCalls,
 		allowFailure: false,
 	})) as readonly unknown[];
 
-	const FIELDS_PER_VAULT = 13;
+	const FIELDS_PER_VAULT = 12;
 	const vaultDataByIndex = records.map((_, i) => {
 		const base = i * FIELDS_PER_VAULT;
 		return {
@@ -392,9 +413,9 @@ export async function fetchAgents(
 			maxDrawdownBps: vaultResults[base + 7] as number,
 			maxUtilizationBps: vaultResults[base + 8] as number,
 			yieldSource: vaultResults[base + 9] as `0x${string}`,
-			seedShares: vaultResults[base + 10] as bigint,
-			breakerTripped: vaultResults[base + 11] as boolean,
-			shares: vaultResults[base + 12] as bigint,
+			seedShares: seedShares[i],
+			breakerTripped: vaultResults[base + 10] as boolean,
+			shares: vaultResults[base + 11] as bigint,
 		};
 	});
 
