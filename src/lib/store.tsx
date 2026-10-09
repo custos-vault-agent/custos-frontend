@@ -45,6 +45,7 @@ import type {
 	ResetPeriod,
 	RouteStep,
 	SubscribeInput,
+	YieldSourceOption,
 } from "./types";
 
 export type { RedeemInput, RegisterInput, SubscribeInput };
@@ -61,6 +62,7 @@ type StoreValue = {
 	connectedAddress: string | null;
 	agents: Agent[];
 	agentsLoading: boolean;
+	yieldSources: YieldSourceOption[];
 	myAgents: Agent[];
 	positions: Position[];
 	marketFlow: MarketFlow[];
@@ -97,6 +99,7 @@ type StoreValue = {
 const EMPTY_AGENTS: Agent[] = [];
 const EMPTY_POSITIONS: Position[] = [];
 const EMPTY_FLOW: MarketFlow[] = [];
+const EMPTY_YIELD: YieldSourceOption[] = [];
 
 const StoreContext = createContext<StoreValue | null>(null);
 
@@ -123,6 +126,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 	const base = data?.base ?? null;
 	const markets = data?.markets;
 	const marketFlow = data?.marketFlow ?? EMPTY_FLOW;
+	const yieldSources = data?.yieldSources ?? EMPTY_YIELD;
 	const connectedAddress = address ?? null;
 
 	const myAgents = useMemo(
@@ -456,11 +460,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		if (!publicClient) throw new Error("no public client");
 		const seed = BigInt(Math.round(input.seedAmount * 10 ** USDC_DECIMALS));
 		const allowance = BigInt(Math.round(input.allowance * 10 ** USDC_DECIMALS));
-		// address(0) keeps the vault's USDC idle; anything else must be allowlisted
-		// by the protocol or registerAgent reverts with YieldSourceNotAllowed.
-		const yieldSource = input.yieldEnabled
-			? CONTRACTS.yieldSource
-			: zeroAddress;
 
 		const flight = startFlight(
 			{
@@ -515,7 +514,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 					RESET_PERIOD_SECONDS[input.resetPeriod],
 					input.feeRateBps,
 					input.maxDrawdownBps,
-					yieldSource,
+					// address(0) keeps USDC idle; else it must be allowlisted on-chain.
+					input.yieldSource as `0x${string}`,
 					input.maxUtilizationBps,
 					input.isPublic,
 					seed,
@@ -740,6 +740,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		connectedAddress,
 		agents,
 		agentsLoading,
+		yieldSources,
 		myAgents,
 		positions,
 		marketFlow,

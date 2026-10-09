@@ -200,9 +200,12 @@ export type RegisterInput = {
 	feeRateBps: number;
 	maxDrawdownBps: number;
 	maxUtilizationBps: number;
-	yieldEnabled: boolean;
+	/** Allowlisted yield source, or the zero address to keep USDC idle. */
+	yieldSource: string;
 	isPublic: boolean;
 };
+
+export type YieldSourceOption = { address: `0x${string}`; apyBps: number };
 
 export type SubscribeInput = {
 	agentId: string;

@@ -25,7 +25,7 @@ const PERIODS: ResetPeriod[] = ["daily", "weekly", "monthly", "never"];
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
 export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
-	const { registerAgent, connectedAddress } = useStore();
+	const { registerAgent, connectedAddress, yieldSources } = useStore();
 
 	const [name, setName] = useState("");
 	const [description, setDescription] = useState("");
@@ -36,7 +36,8 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 	const [feeRatePercent, setFeeRatePercent] = useState("10");
 	const [maxDrawdownPercent, setMaxDrawdownPercent] = useState("20");
 	const [maxUtilizationPercent, setMaxUtilizationPercent] = useState("70");
-	const [yieldEnabled, setYieldEnabled] = useState(true);
+	// Index into the offered sources; -1 = keep USDC idle.
+	const [yieldIndex, setYieldIndex] = useState(0);
 	const [isPublic, setIsPublic] = useState(true);
 	const [touched, setTouched] = useState(false);
 
@@ -54,9 +55,7 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 	// The registry stores the name as bytes32, so the limit is 32 bytes and not
 	// 32 characters.
 	const nameTooLong = new TextEncoder().encode(name.trim()).length > 32;
-	// No allowlisted yield source means the only valid value is address(0), so
-	// the toggle would promise something registerAgent would reject.
-	const yieldAvailable = CONTRACTS.yieldSource !== zeroAddress;
+	const pickedYield = yieldSources[yieldIndex];
 	const seedNumber = Number(seedAmount) || 0;
 	const allowanceNumber = Number(allowance) || 0;
 	const feeRateBps = Math.round((Number(feeRatePercent) || 0) * 100);
@@ -252,18 +251,31 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 					/>
 				</Field>
 
-				<label className="flex items-center gap-2 text-[17px]">
-					<input
-						type="checkbox"
-						checked={yieldEnabled && yieldAvailable}
-						disabled={!yieldAvailable}
-						onChange={(e) => setYieldEnabled(e.target.checked)}
-					/>
-					Deploy idle capital to yield (immutable)
-					{yieldAvailable ? null : (
-						<span className="text-[16px] text-dim">no source configured</span>
-					)}
-				</label>
+				{yieldSources.length === 1 ? (
+					<label className="flex items-center gap-2 text-[17px]">
+						<input
+							type="checkbox"
+							checked={!!pickedYield}
+							onChange={(e) => setYieldIndex(e.target.checked ? 0 : -1)}
+						/>
+						Deploy idle capital to yield (immutable) ·{" "}
+						{(yieldSources[0].apyBps / 100).toFixed(2)}% APY
+					</label>
+				) : yieldSources.length > 1 ? (
+					<Field label="Yield source" hint="immutable after this">
+						<Select
+							value={yieldIndex}
+							onChange={(e) => setYieldIndex(Number(e.target.value))}
+						>
+							<option value={-1}>none (keep USDC idle)</option>
+							{yieldSources.map((y, i) => (
+								<option key={y.address} value={i}>
+									{shortAddress(y.address)} · {(y.apyBps / 100).toFixed(2)}% APY
+								</option>
+							))}
+						</Select>
+					</Field>
+				) : null}
 
 				<label className="flex items-center gap-2 text-[17px]">
 					<input
@@ -295,7 +307,7 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 							feeRateBps,
 							maxDrawdownBps,
 							maxUtilizationBps,
-							yieldEnabled,
+							yieldSource: pickedYield?.address ?? zeroAddress,
 							isPublic,
 						});
 						onClose();

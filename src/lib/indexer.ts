@@ -82,6 +82,9 @@ query Agents($chainId: Int!, $since: Int!, $flowSince: Int!${withHolder ? ", $ho
   SharePricePoint(where: { chainId: { _eq: $chainId } }, order_by: { timestamp: asc }) {
     agent timestamp sharePrice totalAssets notional source
   }
+  YieldSource(where: { chainId: { _eq: $chainId }, allowed: { _eq: true } }) {
+    id
+  }
   Market(where: { chainId: { _eq: $chainId } }) {
     id baseSymbol baseDecimals
   }
@@ -112,6 +115,8 @@ export type IndexedData = {
 	/** Keyed by lowercased market address. */
 	markets: Map<string, MarketMeta>;
 	marketFlow: MarketFlow[];
+	/** Yield sources the indexer last saw allowlisted; unconfirmed against the chain. */
+	yieldSources: `0x${string}`[];
 };
 
 export type MarketMeta = { symbol: string; decimals: number };
@@ -269,6 +274,9 @@ export async function fetchIndexedAgents(
 		snapshotsByAgent,
 		positionsByAgent,
 		markets,
+		yieldSources: ((data.YieldSource ?? []) as { id: string }[]).map(
+			(y) => y.id as `0x${string}`,
+		),
 		marketFlow: reduceMarketFlow(data.MarketFlowBucket ?? [], markets),
 	};
 }

@@ -1,5 +1,5 @@
 import type { PublicClient } from "viem";
-import { hexToString, zeroAddress } from "viem";
+import { getAddress, hexToString, zeroAddress } from "viem";
 import { AgentVaultAbi } from "./abi/AgentVault";
 import { CustosCoreAbi } from "./abi/CustosCore";
 import { MockERC20Abi } from "./abi/MockERC20";
@@ -19,6 +19,7 @@ import type {
 	MarketFlow,
 	NansenBadge,
 	Position,
+	YieldSourceOption,
 } from "./types";
 
 const DEAD_ADDRESS = "0x0000000000000000000000000000000000000001" as const;
@@ -157,6 +158,7 @@ export async function fetchAgents(
 	base: BaseToken | null;
 	markets: Map<string, MarketMeta>;
 	marketFlow: MarketFlow[];
+	yieldSources: YieldSourceOption[];
 }> {
 	// The RPC decides which chain this really is. A VITE_RPC_URL that points at a
 	// different network than VITE_CHAIN_ID makes the wallet ask for the wrong chain
@@ -192,8 +194,54 @@ export async function fetchAgents(
 		: await listFromChain(publicClient);
 	const markets = indexed?.markets ?? new Map<string, MarketMeta>();
 	const marketFlow = indexed?.marketFlow ?? [];
+
+	// A mapping cannot be enumerated, so without a reachable indexer there is no
+	// yield option. The log replay can lag, so confirm each source on-chain.
+	const indexedSources = indexed?.yieldSources ?? [];
+	const allowedFlags =
+		indexedSources.length === 0
+			? []
+			: ((await publicClient.multicall({
+					contracts: indexedSources.map((addr) => ({
+						address: CONTRACTS.custosCore,
+						abi: CustosCoreAbi,
+						functionName: "isYieldSourceAllowed",
+						args: [addr],
+					})),
+					allowFailure: false,
+				})) as readonly boolean[]);
+	const allowedSources = indexedSources
+		.filter((_, i) => allowedFlags[i])
+		.map((a) => getAddress(a));
+
+	async function readApy(addrs: `0x${string}`[]) {
+		const results =
+			addrs.length === 0
+				? []
+				: ((await publicClient.multicall({
+						contracts: addrs.map((addr) => ({
+							address: addr,
+							abi: YIELD_SOURCE_ABI,
+							functionName: "apyBps",
+						})),
+						allowFailure: false,
+					})) as readonly bigint[]);
+		return new Map(addrs.map((addr, i) => [addr, results[i]]));
+	}
+	const toOptions = (apy: Map<`0x${string}`, bigint>) =>
+		allowedSources
+			.map((address) => ({ address, apyBps: Number(apy.get(address) ?? 0n) }))
+			.sort((a, b) => b.apyBps - a.apyBps);
+
 	if (ids.length === 0)
-		return { agents: [], positions: [], base, markets, marketFlow };
+		return {
+			agents: [],
+			positions: [],
+			base,
+			markets,
+			marketFlow,
+			yieldSources: toOptions(await readApy(allowedSources)),
+		};
 	const descriptionById = new Map(
 		indexed?.agents.map((a) => [a.id.toLowerCase(), a.description]) ?? [],
 	);
@@ -268,23 +316,14 @@ export async function fetchAgents(
 
 	// yieldApyBps needs a second-hop read against each distinct yieldSource —
 	// skipped entirely for disabled (zero-address) vaults.
-	const yieldSourceAddrs = vaultDataByIndex
-		.map((v) => v.yieldSource)
-		.filter((addr) => addr !== zeroAddress);
-	const apyResults =
-		yieldSourceAddrs.length === 0
-			? []
-			: ((await publicClient.multicall({
-					contracts: yieldSourceAddrs.map((addr) => ({
-						address: addr,
-						abi: YIELD_SOURCE_ABI,
-						functionName: "apyBps",
-					})),
-					allowFailure: false,
-				})) as readonly bigint[]);
-	const apyByYieldSource = new Map(
-		yieldSourceAddrs.map((addr, i) => [addr, apyResults[i]]),
-	);
+	const apyByYieldSource = await readApy([
+		...new Set([
+			...vaultDataByIndex
+				.map((v) => v.yieldSource)
+				.filter((addr) => addr !== zeroAddress),
+			...allowedSources,
+		]),
+	]);
 
 	// Nansen badge: the plaintext comes from the indexer (NanSigil's event carries
 	// it), but "verified" is only ever what NanSigil.verify says on-chain for the
@@ -470,5 +509,12 @@ export async function fetchAgents(
 			},
 		];
 	});
-	return { agents, positions, base, markets, marketFlow };
+	return {
+		agents,
+		positions,
+		base,
+		markets,
+		marketFlow,
+		yieldSources: toOptions(apyByYieldSource),
+	};
 }

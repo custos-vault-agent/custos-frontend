@@ -10,6 +10,13 @@ export const serialize = (entries: ActivityEntry[]) => JSON.stringify(entries);
 function valid(e: unknown): e is ActivityEntry {
 	if (!e || typeof e !== "object") return false;
 	const x = e as Record<string, unknown>;
+	// A register flight saved before the yield source became an address carries no
+	// usable payload. Drop it rather than resume with an undefined address.
+	const r = x.resume as
+		| { action?: string; input?: Record<string, unknown> }
+		| undefined;
+	if (r?.action === "register" && typeof r.input?.yieldSource !== "string")
+		return false;
 	return (
 		typeof x.id === "string" &&
 		typeof x.kind === "string" &&
