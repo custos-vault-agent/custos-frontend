@@ -38,6 +38,7 @@ import type {
 	ActivityEntry,
 	ActivityKind,
 	Agent,
+	MarketFlow,
 	Position,
 	RedeemInput,
 	RegisterInput,
@@ -62,6 +63,7 @@ type StoreValue = {
 	agentsLoading: boolean;
 	myAgents: Agent[];
 	positions: Position[];
+	marketFlow: MarketFlow[];
 	myPositions: Position[];
 	history: ActivityEntry[];
 	inFlight: ActivityEntry[];
@@ -94,6 +96,7 @@ type StoreValue = {
 
 const EMPTY_AGENTS: Agent[] = [];
 const EMPTY_POSITIONS: Position[] = [];
+const EMPTY_FLOW: MarketFlow[] = [];
 
 const StoreContext = createContext<StoreValue | null>(null);
 
@@ -119,6 +122,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 	const myPositions = data?.positions ?? EMPTY_POSITIONS;
 	const base = data?.base ?? null;
 	const markets = data?.markets;
+	const marketFlow = data?.marketFlow ?? EMPTY_FLOW;
 	const connectedAddress = address ?? null;
 
 	const myAgents = useMemo(
@@ -738,6 +742,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		agentsLoading,
 		myAgents,
 		positions,
+		marketFlow,
 		myPositions,
 		history,
 		inFlight,

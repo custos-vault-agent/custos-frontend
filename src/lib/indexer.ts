@@ -5,8 +5,8 @@
 
 import { formatUnits } from "viem";
 import { fromTokenUnits } from "./chain";
-import { formatAmount } from "./format";
-import type { ActivityEntry } from "./types";
+import { formatAmount, shortAddress } from "./format";
+import type { ActivityEntry, MarketFlow } from "./types";
 
 const GRAPHQL_URL = import.meta.env.VITE_ENVIO_GRAPHQL_URL as
 	| string
@@ -34,6 +34,9 @@ export type IndexedAgent = {
 	realizedPnl: bigint;
 	closedCount: number;
 	winCount: number;
+	markets: string[];
+	assetsInTotal: bigint;
+	assetsOutTotal: bigint;
 };
 
 export type IndexedPricePoint = {
@@ -63,17 +66,21 @@ export type IndexedSnapshot = {
 
 // The position table is only queried for a connected holder.
 const buildQuery = (withHolder: boolean) => `
-query Agents($chainId: Int!, $since: Int!${withHolder ? ", $holder: String!" : ""}) {
+query Agents($chainId: Int!, $since: Int!, $flowSince: Int!${withHolder ? ", $holder: String!" : ""}) {
   Agent(where: { chainId: { _eq: $chainId } }, order_by: { registeredAt: asc }) {
     id creator wallet vault name description feeRate isPublic registeredAt swapCount volume
     nansenLabel nansenPnl nansenWinRate nansenAttestedAt
     subscriberCount yieldDeployed realizedPnl closedCount winCount
+    markets assetsInTotal assetsOutTotal
   }
   SharePricePoint(where: { chainId: { _eq: $chainId } }, order_by: { timestamp: asc }) {
     agent timestamp sharePrice totalAssets notional source
   }
   Market(where: { chainId: { _eq: $chainId } }) {
     id baseSymbol baseDecimals
+  }
+  MarketFlowBucket(where: { chainId: { _eq: $chainId }, timestamp: { _gte: $flowSince } }, limit: 10000) {
+    market timestamp buyNotional sellNotional swapCount
   }
   AgentSnapshot(where: { chainId: { _eq: $chainId }, timestamp: { _gte: $since } }, order_by: { timestamp: asc }, limit: 10000) {
     agent timestamp sharePrice totalAssets subscriberCount
@@ -98,18 +105,64 @@ export type IndexedData = {
 	positionsByAgent: Map<string, IndexedPosition>;
 	/** Keyed by lowercased market address. */
 	markets: Map<string, MarketMeta>;
+	marketFlow: MarketFlow[];
 };
 
 export type MarketMeta = { symbol: string; decimals: number };
 
 const THIRTY_DAYS = 30 * 24 * 60 * 60;
+const DAY = 24 * 60 * 60;
+
+/** Sums hourly buckets per market over 24h and 7d; net flow is buys minus sells. */
+export function reduceMarketFlow(
+	buckets: Record<string, unknown>[],
+	markets: Map<string, MarketMeta>,
+): MarketFlow[] {
+	const dayAgo = Math.floor(Date.now() / 1000) - DAY;
+	const acc = new Map<string, MarketFlow>();
+	for (const b of buckets) {
+		const market = String(b.market).toLowerCase();
+		const buy = fromTokenUnits(big(b.buyNotional));
+		const sell = fromTokenUnits(big(b.sellNotional));
+		const f = acc.get(market) ?? {
+			market,
+			symbol: markets.get(market)?.symbol ?? shortAddress(market),
+			netFlow24h: 0,
+			netFlow7d: 0,
+			buyNotional7d: 0,
+			sellNotional7d: 0,
+			swapCount7d: 0,
+			trend: "neutral" as const,
+		};
+		if (Number(b.timestamp) >= dayAgo) f.netFlow24h += buy - sell;
+		f.netFlow7d += buy - sell;
+		f.buyNotional7d += buy;
+		f.sellNotional7d += sell;
+		f.swapCount7d += Number(b.swapCount);
+		acc.set(market, f);
+	}
+	return [...acc.values()].map((f) => {
+		const gross = f.buyNotional7d + f.sellNotional7d;
+		const ratio = gross > 0 ? f.netFlow7d / gross : 0;
+		return {
+			...f,
+			trend:
+				ratio > 0.1
+					? "accumulating"
+					: ratio < -0.1
+						? "distributing"
+						: "neutral",
+		};
+	});
+}
 
 export async function fetchIndexedAgents(
 	chainId: number,
 	holder?: string,
 ): Promise<IndexedData | null> {
 	if (!GRAPHQL_URL) return null;
-	const since = Math.floor(Date.now() / 1000) - THIRTY_DAYS;
+	const now = Math.floor(Date.now() / 1000);
+	const since = now - THIRTY_DAYS;
 	const res = await fetch(GRAPHQL_URL, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
@@ -118,6 +171,7 @@ export async function fetchIndexedAgents(
 			variables: {
 				chainId,
 				since,
+				flowSince: now - 7 * DAY,
 				...(holder ? { holder: holder.toLowerCase() } : {}),
 			},
 		}),
@@ -143,6 +197,9 @@ export async function fetchIndexedAgents(
 			realizedPnl: big(a.realizedPnl ?? 0),
 			closedCount: Number(a.closedCount ?? 0),
 			winCount: Number(a.winCount ?? 0),
+			markets: ((a.markets ?? []) as string[]).map((m) => m.toLowerCase()),
+			assetsInTotal: big(a.assetsInTotal ?? 0),
+			assetsOutTotal: big(a.assetsOutTotal ?? 0),
 		}),
 	);
 
@@ -193,7 +250,14 @@ export async function fetchIndexedAgents(
 			{ symbol: String(m.baseSymbol), decimals: Number(m.baseDecimals) },
 		]),
 	);
-	return { agents, pointsByAgent, snapshotsByAgent, positionsByAgent, markets };
+	return {
+		agents,
+		pointsByAgent,
+		snapshotsByAgent,
+		positionsByAgent,
+		markets,
+		marketFlow: reduceMarketFlow(data.MarketFlowBucket ?? [], markets),
+	};
 }
 
 const ACTIVITY_TABLES = [

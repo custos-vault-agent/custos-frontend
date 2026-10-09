@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { MarketFlowList } from "#/components/MarketFlowList";
 import { NansenBadgeChip } from "#/components/NansenBadge";
 import {
 	DrawdownGauge,
@@ -25,10 +26,12 @@ import {
 	formatClock,
 	formatCompactUsd,
 	formatDay,
+	formatPercent,
+	livenessPill,
+	moneyWeightedReturn,
 	shortAddress,
 } from "#/lib/format";
 import { useStore } from "#/lib/store";
-import { smartMoneyFor } from "#/mock/smartMoney";
 
 export const Route = createFileRoute("/agents/$agentId")({
 	component: VaultDetailPage,
@@ -49,7 +52,8 @@ type Panel = "none" | "subscribe" | "redeem";
 
 function VaultDetailPage() {
 	const { agentId } = Route.useParams();
-	const { agents, agentsLoading, myPositions, history } = useStore();
+	const { agents, agentsLoading, myPositions, history, marketFlow } =
+		useStore();
 	const [panel, setPanel] = useState<Panel>("none");
 
 	const agent = agents.find((a) => a.id === agentId);
@@ -75,7 +79,6 @@ function VaultDetailPage() {
 	const trades = history
 		.filter((e) => e.agentId === agentId && e.kind === "agent-trade")
 		.sort((a, b) => b.timestamp - a.timestamp);
-	const signals = smartMoneyFor(agentId);
 
 	const reserved =
 		agent.vault.totalAssets * (agent.vault.maxUtilizationBps / 10_000);
@@ -91,6 +94,14 @@ function VaultDetailPage() {
 			: null;
 	const drawdown =
 		hwm > 0 ? Math.max(0, (1 - agent.vault.sharePrice / hwm) * 100) : 0;
+	const signals = marketFlow.filter((f) => agent.markets.includes(f.market));
+	const liveness = livenessPill(agent);
+	const dollarReturn = agent.stats.dollarReturn;
+	const shareReturn = (agent.vault.sharePrice - 1) * 100;
+	const yourReturn =
+		position?.assetsIn === undefined || position.assetsOut === undefined
+			? null
+			: moneyWeightedReturn(yourValue, position.assetsOut, position.assetsIn);
 	const yourPnl =
 		position?.depositedAssets === undefined
 			? null
@@ -122,6 +133,11 @@ function VaultDetailPage() {
 										{agent.status}
 									</StatusPill>
 									{!agent.isPublic ? <StatusPill>unlisted</StatusPill> : null}
+									{liveness ? (
+										<StatusPill tone={liveness.tone}>
+											{liveness.label}
+										</StatusPill>
+									) : null}
 									{agent.vault.circuitBreakerTripped ? (
 										<StatusPill tone="fail">
 											breaker tripped ·{" "}
@@ -204,6 +220,45 @@ function VaultDetailPage() {
 							highWaterMark={hwm}
 							maxDrawdownBps={agent.vault.maxDrawdownBps}
 						/>
+
+						<div className="border-t border-edge pt-2">
+							<div className="grid grid-cols-2 gap-3">
+								<div>
+									<div
+										className={cx(
+											"tnum text-[20px]",
+											shareReturn < 0 ? "text-sell" : "text-accent",
+										)}
+									>
+										{formatPercent(shareReturn)}
+									</div>
+									<Label className="text-[14px] tracking-[1px]">
+										share-price return
+									</Label>
+								</div>
+								<div>
+									<div
+										className={cx(
+											"tnum text-[20px]",
+											dollarReturn !== null && dollarReturn < 0
+												? "text-sell"
+												: "text-accent",
+										)}
+									>
+										{dollarReturn === null
+											? "—"
+											: formatPercent(dollarReturn * 100)}
+									</div>
+									<Label className="text-[14px] tracking-[1px]">
+										dollar-weighted return
+									</Label>
+								</div>
+							</div>
+							<p className="mt-1 text-[16px] text-dim">
+								Share price is time-weighted. The dollar-weighted number follows
+								when capital actually arrived, so a gap either way is timing.
+							</p>
+						</div>
 
 						<div className="grid grid-cols-2 gap-3 border-t border-edge pt-2">
 							<div>
@@ -310,40 +365,14 @@ function VaultDetailPage() {
 				</Card>
 
 				<Card>
-					<CardHeader title="Smart Money signals" />
+					<CardHeader title="Agent consensus" meta="Custos agents · 24h / 7d" />
 					{signals.length === 0 ? (
 						<Empty
-							title="No Smart Money data yet"
-							hint="Signals appear once this vault has traded a token Nansen tracks."
+							title="No flow data yet"
+							hint="Flow appears once this vault has traded a market."
 						/>
 					) : (
-						<div className="divide-y divide-edge">
-							{signals.map((signal) => (
-								<div
-									key={signal.tokenSymbol}
-									className="flex items-center gap-3 p-3 text-[17px]"
-								>
-									<span className="w-[64px] shrink-0">
-										{signal.tokenSymbol}
-									</span>
-									<StatusPill
-										tone={
-											signal.trend === "accumulating"
-												? "ok"
-												: signal.trend === "distributing"
-													? "fail"
-													: "neutral"
-										}
-									>
-										{signal.trend}
-									</StatusPill>
-									<span className="tnum ml-auto text-dim">
-										24h {signal.netFlow24h >= 0 ? "+" : ""}
-										{formatCompactUsd(signal.netFlow24h)}
-									</span>
-								</div>
-							))}
-						</div>
+						<MarketFlowList flows={signals} />
 					)}
 				</Card>
 			</div>
@@ -378,6 +407,11 @@ function VaultDetailPage() {
 									<div className="tnum text-[17px] text-dim">
 										{formatAmount(position.shares)} shares
 									</div>
+									{yourReturn === null ? null : (
+										<div className="tnum text-[17px] text-dim">
+											{formatPercent(yourReturn * 100)} money-weighted return
+										</div>
+									)}
 								</div>
 							) : (
 								<Empty

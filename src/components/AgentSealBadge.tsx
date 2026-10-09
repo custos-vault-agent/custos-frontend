@@ -1,5 +1,10 @@
 import type { CSSProperties, ReactNode } from "react";
-import { formatCompactUsd, formatPercent, shortAddress } from "#/lib/format";
+import {
+	formatCompactUsd,
+	formatPercent,
+	livenessPill,
+	shortAddress,
+} from "#/lib/format";
 import type { Agent } from "#/lib/types";
 import { NansenBadgeChip } from "./NansenBadge";
 import { ReserveRatioBar, SharePriceSpark } from "./ui/meters";
@@ -49,6 +54,7 @@ export function AgentSealBadge({
 	subscriberCount?: number;
 }) {
 	const paused = agent.status === "paused";
+	const liveness = livenessPill(agent);
 	const fresh = agent.vault.sharePriceHistory.length < 2;
 	const sharePriceChangePct =
 		((agent.vault.sharePrice - agent.vault.sharePriceHistory[0].price) /
@@ -91,6 +97,8 @@ export function AgentSealBadge({
 					<StatusPill tone="fail">breaker tripped</StatusPill>
 				) : paused ? (
 					<StatusPill>paused</StatusPill>
+				) : liveness ? (
+					<StatusPill tone={liveness.tone}>{liveness.label}</StatusPill>
 				) : null}
 			</div>
 

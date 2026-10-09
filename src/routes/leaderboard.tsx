@@ -1,8 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { Card, Chip, cx, Empty, Label } from "#/components/ui/primitives";
+import { MarketFlowList } from "#/components/MarketFlowList";
+import {
+	Card,
+	CardHeader,
+	Chip,
+	cx,
+	Empty,
+	Label,
+} from "#/components/ui/primitives";
 import { Sigil } from "#/components/ui/Sigil";
-import { formatAmount, formatCompactUsd } from "#/lib/format";
+import { formatAmount, formatCompactUsd, formatPercent } from "#/lib/format";
 import { useStore } from "#/lib/store";
 import type { Agent } from "#/lib/types";
 
@@ -17,7 +25,8 @@ type Sort =
 	| "trades"
 	| "volume"
 	| "subscribers"
-	| "sharePrice";
+	| "sharePrice"
+	| "dollarReturn";
 
 const SORTS: { id: Sort; label: string }[] = [
 	{ id: "tvl", label: "tvl" },
@@ -27,6 +36,7 @@ const SORTS: { id: Sort; label: string }[] = [
 	{ id: "volume", label: "30d volume" },
 	{ id: "subscribers", label: "subscribers" },
 	{ id: "sharePrice", label: "share price" },
+	{ id: "dollarReturn", label: "$-weighted return" },
 ];
 
 // Agents with no closed trade have no win rate and rank last on it.
@@ -46,11 +56,13 @@ function score(sort: Sort, a: Agent): number {
 			return a.stats.subscribers;
 		case "sharePrice":
 			return a.vault.sharePrice;
+		case "dollarReturn":
+			return a.stats.dollarReturn ?? Number.NEGATIVE_INFINITY;
 	}
 }
 
 function LeaderboardPage() {
-	const { agents, agentsLoading } = useStore();
+	const { agents, agentsLoading, marketFlow } = useStore();
 	const [sort, setSort] = useState<Sort>("tvl");
 
 	const ranked = useMemo(
@@ -86,7 +98,7 @@ function LeaderboardPage() {
 					/>
 				) : (
 					<div className="overflow-x-auto">
-						<table className="w-full min-w-[820px] text-left text-[17px]">
+						<table className="w-full min-w-[920px] text-left text-[17px]">
 							<thead>
 								<tr className="border-b-2 border-edge">
 									{[
@@ -99,6 +111,7 @@ function LeaderboardPage() {
 										"30d volume",
 										"subs",
 										"share price",
+										"$-weighted return",
 									].map((h, i) => (
 										<th
 											key={h}
@@ -157,12 +170,22 @@ function LeaderboardPage() {
 										<td className="px-3 py-2 text-right">
 											{agent.vault.sharePrice.toFixed(4)}
 										</td>
+										<td className="px-3 py-2 text-right">
+											{agent.stats.dollarReturn === null
+												? "—"
+												: formatPercent(agent.stats.dollarReturn * 100)}
+										</td>
 									</tr>
 								))}
 							</tbody>
 						</table>
 					</div>
 				)}
+			</Card>
+
+			<Card className="mt-4">
+				<CardHeader title="Agent consensus" meta="Custos agents · 24h / 7d" />
+				<MarketFlowList flows={marketFlow} />
 			</Card>
 		</div>
 	);

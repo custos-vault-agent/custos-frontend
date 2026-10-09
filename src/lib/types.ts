@@ -27,6 +27,12 @@ export type AgentStats = {
 	closedTrades: number;
 	/** Null until a roundtrip has closed. */
 	winRatePct: number | null;
+	/** Pooled dollar-weighted return as a fraction; null with no deposits indexed. */
+	dollarReturn: number | null;
+	/** Ms of the newest swap; null when none. Meaningless unless `indexed`. */
+	lastTradeAt: number | null;
+	/** False when the indexer was unreachable, so trade history is unknown. */
+	indexed: boolean;
 };
 
 /**
@@ -69,11 +75,15 @@ export type NansenBadge = {
 	stale: boolean;
 };
 
-/** Smart Money netflow signal for one token a vault has traded (spec §12.3). */
-export type SmartMoneySignal = {
-	tokenSymbol: AssetSymbol;
+/** Custos agents' aggregate USDC flow in one market, from indexed swaps. */
+export type MarketFlow = {
+	market: string;
+	symbol: string;
 	netFlow24h: number;
 	netFlow7d: number;
+	buyNotional7d: number;
+	sellNotional7d: number;
+	swapCount7d: number;
 	trend: "accumulating" | "distributing" | "neutral";
 };
 
@@ -85,6 +95,9 @@ export type Position = {
 	shares: number;
 	/** Cost basis, for the P/L readout. Unset when unknown (share balance only). */
 	depositedAssets?: number;
+	/** Lifetime flows for the money-weighted return. Unset when unknown. */
+	assetsIn?: number;
+	assetsOut?: number;
 };
 
 export type Agent = {
@@ -104,6 +117,8 @@ export type Agent = {
 	status: AgentStatus;
 	registeredAt: number;
 	vault: Vault;
+	/** Lowercased addresses of the markets this agent has traded. */
+	markets: string[];
 	nansen: NansenBadge | null;
 	stats: AgentStats;
 };

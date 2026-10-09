@@ -11,8 +11,15 @@ import {
 	monadChain,
 	secondsToResetPeriod,
 } from "./chain";
+import { moneyWeightedReturn } from "./format";
 import { fetchIndexedAgents, type MarketMeta } from "./indexer";
-import type { Agent, AgentStatus, NansenBadge, Position } from "./types";
+import type {
+	Agent,
+	AgentStatus,
+	MarketFlow,
+	NansenBadge,
+	Position,
+} from "./types";
 
 const DEAD_ADDRESS = "0x0000000000000000000000000000000000000001" as const;
 
@@ -149,6 +156,7 @@ export async function fetchAgents(
 	positions: Position[];
 	base: BaseToken | null;
 	markets: Map<string, MarketMeta>;
+	marketFlow: MarketFlow[];
 }> {
 	// The RPC decides which chain this really is. A VITE_RPC_URL that points at a
 	// different network than VITE_CHAIN_ID makes the wallet ask for the wrong chain
@@ -183,7 +191,9 @@ export async function fetchAgents(
 			}
 		: await listFromChain(publicClient);
 	const markets = indexed?.markets ?? new Map<string, MarketMeta>();
-	if (ids.length === 0) return { agents: [], positions: [], base, markets };
+	const marketFlow = indexed?.marketFlow ?? [];
+	if (ids.length === 0)
+		return { agents: [], positions: [], base, markets, marketFlow };
 	const descriptionById = new Map(
 		indexed?.agents.map((a) => [a.id.toLowerCase(), a.description]) ?? [],
 	);
@@ -337,6 +347,9 @@ export async function fetchAgents(
 		const row = indexedById.get(ids[i].toLowerCase());
 		const since = Math.floor(Date.now() / 1000) - THIRTY_DAYS;
 		const recent = points.filter((p) => p.timestamp >= since);
+		const swapTimes = points
+			.filter((p) => p.source === "swap")
+			.map((p) => p.timestamp);
 		const swaps30d = recent.filter((p) => p.source === "swap");
 		// Price at the start of the window: last point before it, else the first one.
 		const priceThen = fromSharePriceUnits(
@@ -392,6 +405,7 @@ export async function fetchAgents(
 				// leaves this false. Cleared again when the creator resumes.
 				circuitBreakerTripped: v.breakerTripped,
 			},
+			markets: row?.markets ?? [],
 			nansen: nansenByCreator.get(r.creator.toLowerCase()) ?? null,
 			// pnl30d approximates the vault's USDC change over the window from the
 			// share price move applied to today's assets.
@@ -408,6 +422,16 @@ export async function fetchAgents(
 					row && row.closedCount > 0
 						? (row.winCount / row.closedCount) * 100
 						: null,
+				dollarReturn: row
+					? moneyWeightedReturn(
+							totalAssets,
+							fromTokenUnits(row.assetsOutTotal),
+							fromTokenUnits(row.assetsInTotal),
+						)
+					: null,
+				lastTradeAt:
+					swapTimes.length > 0 ? Math.max(...swapTimes) * 1000 : null,
+				indexed: !!indexed,
 			},
 		};
 		return agent;
@@ -421,11 +445,13 @@ export async function fetchAgents(
 				agentId: ids[i],
 				subscriberAddress: account,
 				shares: fromTokenUnits(v.shares),
+				assetsIn: row ? fromTokenUnits(row.assetsIn) : undefined,
+				assetsOut: row ? fromTokenUnits(row.assetsOut) : undefined,
 				depositedAssets: row
 					? fromTokenUnits(row.assetsIn - row.assetsOut)
 					: undefined,
 			},
 		];
 	});
-	return { agents, positions, base, markets };
+	return { agents, positions, base, markets, marketFlow };
 }
