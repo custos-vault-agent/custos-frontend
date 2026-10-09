@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Field, LockedValue, Select, TextInput } from "#/components/ui/fields";
-import { Button, Card, CardHeader, Label } from "#/components/ui/primitives";
+import {
+	Button,
+	Card,
+	CardHeader,
+	Empty,
+	Label,
+} from "#/components/ui/primitives";
 import { Sigil } from "#/components/ui/Sigil";
 import { useStore } from "#/lib/store";
 import type { Agent, ResetPeriod } from "#/lib/types";
@@ -16,8 +22,14 @@ export function EditAgentPanel({
 	focusDanger?: boolean;
 	onClose: () => void;
 }) {
-	const { setAllowance, setPublic, pauseAgent, resumeAgent, revokeAgent } =
-		useStore();
+	const {
+		setAllowance,
+		setPublic,
+		setAgentMarket,
+		pauseAgent,
+		resumeAgent,
+		revokeAgent,
+	} = useStore();
 
 	const [allowance, setAllowanceInput] = useState(String(agent.allowance));
 	const [period, setPeriod] = useState<ResetPeriod>(agent.resetPeriod);
@@ -37,6 +49,8 @@ export function EditAgentPanel({
 		period !== agent.resetPeriod ||
 		isPublic !== agent.isPublic;
 	const paused = agent.status === "paused";
+	// Revoke is permanent, so the registry rejects every creator write afterwards.
+	const revoked = agent.status === "revoked";
 
 	return (
 		<Card className="animate-enter">
@@ -89,6 +103,38 @@ export function EditAgentPanel({
 					/>
 					Listed publicly on the marketplace
 				</label>
+
+				<div className="space-y-2 border-t border-edge pt-2">
+					<Label>Markets</Label>
+					{agent.marketAccess.length === 0 ? (
+						<Empty
+							title="No markets yet"
+							hint="The protocol has not curated any market yet."
+						/>
+					) : (
+						agent.marketAccess.map((m) => (
+							<label
+								key={m.market}
+								className="flex items-center gap-2 text-[17px]"
+							>
+								<input
+									type="checkbox"
+									checked={m.allowed}
+									disabled={revoked || (m.allowed && m.heldByVault)}
+									onChange={(e) =>
+										setAgentMarket(agent.id, m.market, e.target.checked)
+									}
+								/>
+								{m.baseSymbol}
+								{m.allowed && m.heldByVault ? (
+									<span className="ml-auto text-[16px] text-dim">
+										vault still holds {m.baseSymbol}
+									</span>
+								) : null}
+							</label>
+						))
+					)}
+				</div>
 
 				<div className="space-y-2 border-t border-edge pt-2">
 					<Label>Locked at registration</Label>

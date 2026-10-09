@@ -114,6 +114,16 @@ export type Position = {
 	assetsOut?: number;
 };
 
+/** One curated market as it stands for one agent. Creator-only state. */
+export type MarketAccess = {
+	market: string;
+	baseToken: string;
+	baseSymbol: string;
+	allowed: boolean;
+	/** The vault holds base token; disabling would revert with MarketStillHeld. */
+	heldByVault: boolean;
+};
+
 export type Agent = {
 	id: string;
 	name: string;
@@ -133,6 +143,8 @@ export type Agent = {
 	vault: Vault;
 	/** Lowercased addresses of the markets this agent has traded. */
 	markets: string[];
+	/** Curated markets and this agent's toggle for each. Empty unless the viewer is the creator. */
+	marketAccess: MarketAccess[];
 	nansen: NansenBadge | null;
 	stats: AgentStats;
 	behaviour: Behaviour | null;

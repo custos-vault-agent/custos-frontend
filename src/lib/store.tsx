@@ -84,6 +84,7 @@ type StoreValue = {
 	resumeAgent: (id: string) => void;
 	revokeAgent: (id: string) => void;
 	setPublic: (id: string, isPublic: boolean) => void;
+	setAgentMarket: (id: string, market: string, allowed: boolean) => void;
 	subscribe: (input: SubscribeInput) => void;
 	redeem: (input: RedeemInput) => void;
 	/** Clears a finished (failed) in-flight entry from the panel that shows it. */
@@ -659,6 +660,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		| { functionName: "setPublic"; args: [boolean] }
 		| { functionName: "setAllowance"; args: [bigint] }
 		| { functionName: "setPeriod"; args: [number] }
+		| { functionName: "setAgentMarket"; args: [`0x${string}`, boolean] }
 	);
 
 	/** Creator-only CustosCore writes, one transaction per step. No resume
@@ -790,6 +792,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		revokeAgent: (id) =>
 			runCreatorAction(id, "Revoke", [
 				{ label: "Revoke agent", functionName: "revokeAgent", args: [] },
+			]),
+		setAgentMarket: (id, market, allowed) =>
+			runCreatorAction(id, "Markets", [
+				{
+					label: allowed ? "Enable market" : "Disable market",
+					functionName: "setAgentMarket",
+					args: [market as `0x${string}`, allowed],
+				},
 			]),
 		setPublic: (id, isPublic) =>
 			runCreatorAction(id, "Visibility", [

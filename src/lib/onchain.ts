@@ -11,11 +11,12 @@ import {
 	monadChain,
 	secondsToResetPeriod,
 } from "./chain";
-import { moneyWeightedReturn } from "./format";
+import { moneyWeightedReturn, shortAddress } from "./format";
 import { fetchIndexedAgents, type MarketMeta } from "./indexer";
 import type {
 	Agent,
 	AgentStatus,
+	MarketAccess,
 	MarketFlow,
 	NansenBadge,
 	Position,
@@ -43,6 +44,18 @@ const YIELD_SOURCE_ABI = [
 		stateMutability: "view",
 		inputs: [],
 		outputs: [{ type: "uint256" }],
+	},
+] as const;
+
+// Narrow fragments: multicall over the full AgentVault ABI blows TypeScript's
+// instantiation depth limit.
+const ALLOWED_MARKETS_ABI = [
+	{
+		type: "function",
+		name: "allowedMarkets",
+		stateMutability: "view",
+		inputs: [{ type: "address" }],
+		outputs: [{ type: "bool" }],
 	},
 ] as const;
 
@@ -140,6 +153,68 @@ async function listFromChain(publicClient: PublicClient) {
 		allowFailure: false,
 	})) as unknown as readonly RegistryRecord[];
 	return { ids: [...ids], records: [...records] };
+}
+
+/** Curated markets per agent the account created: the vault's own toggle and
+ *  whether it still holds the base token. Keyed by lowercased vault address. */
+async function readMarketAccess(
+	publicClient: PublicClient,
+	records: RegistryRecord[],
+	account: `0x${string}` | undefined,
+	meta: Map<string, MarketMeta>,
+) {
+	const out = new Map<string, MarketAccess[]>();
+	const mine = records.filter(
+		(r) => account && r.creator.toLowerCase() === account.toLowerCase(),
+	);
+	if (mine.length === 0) return out;
+	const curated = await publicClient.readContract({
+		address: CONTRACTS.custosCore,
+		abi: CustosCoreAbi,
+		functionName: "curatedMarkets",
+	});
+	if (curated.length === 0) return out;
+	const bases = (await publicClient.multicall({
+		contracts: curated.map((market) => ({
+			address: market,
+			abi: BASE_TOKEN_ABI,
+			functionName: "baseToken",
+		})),
+		allowFailure: false,
+	})) as readonly `0x${string}`[];
+	const pairs = mine.flatMap((m) => curated.map((_, j) => ({ m, j })));
+	const allowedFlags = await publicClient.multicall({
+		contracts: pairs.map(({ m, j }) => ({
+			address: m.vault,
+			abi: ALLOWED_MARKETS_ABI,
+			functionName: "allowedMarkets" as const,
+			args: [curated[j]] as const,
+		})),
+		allowFailure: false,
+	});
+	const held = (await publicClient.multicall({
+		contracts: pairs.map(({ m, j }) => ({
+			address: bases[j],
+			abi: MockERC20Abi,
+			functionName: "balanceOf",
+			args: [m.vault],
+		})),
+		allowFailure: false,
+	})) as readonly bigint[];
+	pairs.forEach(({ m, j }, k) => {
+		const key = m.vault.toLowerCase();
+		const list = out.get(key) ?? [];
+		list.push({
+			market: curated[j],
+			baseToken: bases[j],
+			baseSymbol:
+				meta.get(curated[j].toLowerCase())?.symbol ?? shortAddress(curated[j]),
+			allowed: allowedFlags[k],
+			heldByVault: held[k] > 0n,
+		});
+		out.set(key, list);
+	});
+	return out;
 }
 
 const THIRTY_DAYS = 30 * 24 * 60 * 60;
@@ -314,6 +389,13 @@ export async function fetchAgents(
 		};
 	});
 
+	const marketAccess = await readMarketAccess(
+		publicClient,
+		records,
+		account,
+		markets,
+	);
+
 	// yieldApyBps needs a second-hop read against each distinct yieldSource —
 	// skipped entirely for disabled (zero-address) vaults.
 	const apyByYieldSource = await readApy([
@@ -445,6 +527,7 @@ export async function fetchAgents(
 				circuitBreakerTripped: v.breakerTripped,
 			},
 			markets: row?.markets ?? [],
+			marketAccess: marketAccess.get(r.vault.toLowerCase()) ?? [],
 			nansen: nansenByCreator.get(r.creator.toLowerCase()) ?? null,
 			// pnl30d approximates the vault's USDC change over the window from the
 			// share price move applied to today's assets.

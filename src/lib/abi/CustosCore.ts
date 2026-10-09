@@ -1,5 +1,23 @@
 // Generated from ../../../../custos-contract/abi/CustosCore.json — copy fresh here if the contract's ABI changes.
 export const CustosCoreAbi = [
+	{
+		type: "function",
+		name: "curatedMarkets",
+		inputs: [],
+		outputs: [{ name: "", type: "address[]", internalType: "address[]" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
+		name: "setAgentMarket",
+		inputs: [
+			{ name: "id", type: "bytes32", internalType: "bytes32" },
+			{ name: "market", type: "address", internalType: "address" },
+			{ name: "allowed", type: "bool", internalType: "bool" },
+		],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
 	{ type: "constructor", inputs: [], stateMutability: "nonpayable" },
 	{
 		type: "function",

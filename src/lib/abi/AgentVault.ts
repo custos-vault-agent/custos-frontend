@@ -1,6 +1,13 @@
 // Generated from ../../../../custos-contract/abi/AgentVault.json — copy fresh here if the contract's ABI changes.
 export const AgentVaultAbi = [
 	{
+		type: "function",
+		name: "allowedMarkets",
+		inputs: [{ name: "market", type: "address", internalType: "address" }],
+		outputs: [{ name: "allowed", type: "bool", internalType: "bool" }],
+		stateMutability: "view",
+	},
+	{
 		type: "constructor",
 		inputs: [
 			{ name: "agentId_", type: "bytes32", internalType: "bytes32" },
