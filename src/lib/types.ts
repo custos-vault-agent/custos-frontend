@@ -73,7 +73,7 @@ export type Vault = {
 	/** Immutable (D22). */
 	yieldEnabled: boolean;
 	yieldApyBps: number;
-	/** Locked forever at the dead address (D15) — informational only. */
+	/** The creator's own seed, still locked in the vault, in USDC. */
 	seedAssets: number;
 	circuitBreakerTripped: boolean;
 };

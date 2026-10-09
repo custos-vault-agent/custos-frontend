@@ -208,6 +208,23 @@ export const CustosCoreAbi = [
 	},
 	{
 		type: "function",
+		name: "burnSeed",
+		inputs: [
+			{ name: "id", type: "bytes32", internalType: "bytes32" },
+			{ name: "shares", type: "uint256", internalType: "uint256" },
+		],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
+		name: "releaseSeed",
+		inputs: [{ name: "id", type: "bytes32", internalType: "bytes32" }],
+		outputs: [],
+		stateMutability: "nonpayable",
+	},
+	{
+		type: "function",
 		name: "revokeAgent",
 		inputs: [{ name: "id", type: "bytes32", internalType: "bytes32" }],
 		outputs: [],
@@ -654,6 +671,11 @@ export const CustosCoreAbi = [
 		inputs: [{ name: "target", type: "address", internalType: "address" }],
 	},
 	{ type: "error", name: "AgentAlreadyRevoked", inputs: [] },
+	// Hand-added: AgentVault raises these and the revert bubbles through CustosCore,
+	// so viem needs them here to name the error. A fresh copy of the generated JSON
+	// will not contain them.
+	{ type: "error", name: "AgentNotRevoked", inputs: [] },
+	{ type: "error", name: "BaseStillHeld", inputs: [] },
 	{ type: "error", name: "DrawdownOutOfRange", inputs: [] },
 	{
 		type: "error",
@@ -679,6 +701,8 @@ export const CustosCoreAbi = [
 		name: "SafeERC20FailedOperation",
 		inputs: [{ name: "token", type: "address", internalType: "address" }],
 	},
+	{ type: "error", name: "SeedExceeded", inputs: [] },
+	{ type: "error", name: "SeedLocked", inputs: [] },
 	{ type: "error", name: "SeedTooSmall", inputs: [] },
 	{ type: "error", name: "SelfDelegation", inputs: [] },
 	{ type: "error", name: "UUPSUnauthorizedCallContext", inputs: [] },
@@ -692,4 +716,5 @@ export const CustosCoreAbi = [
 	{ type: "error", name: "WalletAlreadyBound", inputs: [] },
 	{ type: "error", name: "YieldSourceNotAllowed", inputs: [] },
 	{ type: "error", name: "ZeroAddress", inputs: [] },
+	{ type: "error", name: "ZeroAmount", inputs: [] },
 ] as const;

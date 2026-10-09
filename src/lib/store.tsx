@@ -87,6 +87,9 @@ type StoreValue = {
 	revokeAgent: (id: string) => void;
 	setPublic: (id: string, isPublic: boolean) => void;
 	setAgentMarket: (id: string, market: string, allowed: boolean) => void;
+	/** Burns `bps` of the vault's remaining locked seed shares. */
+	burnSeed: (id: string, bps: number) => void;
+	releaseSeed: (id: string) => void;
 	subscribe: (input: SubscribeInput) => void;
 	redeem: (input: RedeemInput) => void;
 	/** Clears a finished (failed) in-flight entry from the panel that shows it. */
@@ -668,6 +671,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		| { functionName: "setAllowance"; args: [bigint] }
 		| { functionName: "setPeriod"; args: [number] }
 		| { functionName: "setAgentMarket"; args: [`0x${string}`, boolean] }
+		| { functionName: "burnSeed"; args: [bigint] }
+		| { functionName: "releaseSeed"; args: [] }
 	);
 
 	/** Creator-only CustosCore writes, one transaction per step. No resume
@@ -808,6 +813,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 					functionName: "setAgentMarket",
 					args: [market as `0x${string}`, allowed],
 				},
+			]),
+		burnSeed: (id, bps) => {
+			const agent = agents.find((a) => a.id === id);
+			if (!agent || !publicClient) return;
+			// Read the locked amount now so the share count can't exceed it.
+			publicClient
+				.readContract({
+					address: agent.vault.address as `0x${string}`,
+					abi: AgentVaultAbi,
+					functionName: "seedShares",
+				})
+				.then((seed) => {
+					const shares = (seed * BigInt(bps)) / 10000n;
+					if (shares === 0n) return;
+					runCreatorAction(id, "Burn seed", [
+						{ label: "Burn seed", functionName: "burnSeed", args: [shares] },
+					]);
+				})
+				.catch((err) => console.error("burnSeed failed:", err));
+		},
+		releaseSeed: (id) =>
+			runCreatorAction(id, "Release seed", [
+				{ label: "Release seed", functionName: "releaseSeed", args: [] },
 			]),
 		setPublic: (id, isPublic) =>
 			runCreatorAction(id, "Visibility", [

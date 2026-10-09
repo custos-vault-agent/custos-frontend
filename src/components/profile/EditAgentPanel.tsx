@@ -8,9 +8,11 @@ import {
 	Label,
 } from "#/components/ui/primitives";
 import { Sigil } from "#/components/ui/Sigil";
-import { marketLabel } from "#/lib/format";
+import { formatCompactUsd, marketLabel } from "#/lib/format";
 import { useStore } from "#/lib/store";
 import type { Agent, ResetPeriod } from "#/lib/types";
+
+const BURN_CHOICES = [2500, 5000, 10000];
 
 const PERIODS: ResetPeriod[] = ["daily", "weekly", "monthly", "never"];
 
@@ -30,12 +32,16 @@ export function EditAgentPanel({
 		pauseAgent,
 		resumeAgent,
 		revokeAgent,
+		burnSeed,
+		releaseSeed,
 	} = useStore();
 
 	const [allowance, setAllowanceInput] = useState(String(agent.allowance));
 	const [period, setPeriod] = useState<ResetPeriod>(agent.resetPeriod);
 	const [isPublic, setIsPublicInput] = useState(agent.isPublic);
 	const [confirm, setConfirm] = useState("");
+	const [burnBps, setBurnBps] = useState(BURN_CHOICES[0]);
+	const [burnArmed, setBurnArmed] = useState(false);
 	const dangerRef = useRef<HTMLInputElement>(null);
 
 	useEffect(() => {
@@ -52,6 +58,14 @@ export function EditAgentPanel({
 	const paused = agent.status === "paused";
 	// Revoke is permanent, so the registry rejects every creator write afterwards.
 	const revoked = agent.status === "revoked";
+
+	const baseHeld = agent.marketAccess.some((m) => m.heldByVault);
+	const canRelease = revoked && !baseHeld;
+	const releaseBlock = !revoked
+		? "Revoke the agent first."
+		: baseHeld
+			? "The vault still holds a market's token."
+			: null;
 
 	return (
 		<Card className="animate-enter">
@@ -135,6 +149,69 @@ export function EditAgentPanel({
 							</label>
 						))
 					)}
+				</div>
+
+				<div className="space-y-2 border-t border-edge pt-2">
+					<Label>Seed</Label>
+					<p className="text-[17px]">
+						{formatCompactUsd(agent.vault.seedAssets)} locked
+					</p>
+					<p className="text-[16px] text-dim">
+						This is your own capital. It stays locked while the agent lives.
+					</p>
+					<div className="flex gap-2">
+						{BURN_CHOICES.map((bps) => (
+							<Button
+								key={bps}
+								variant={burnBps === bps ? "solid" : "ghost"}
+								disabled={agent.vault.seedAssets <= 0}
+								onClick={() => {
+									setBurnBps(bps);
+									setBurnArmed(false);
+								}}
+							>
+								{bps / 100}%
+							</Button>
+						))}
+					</div>
+					<p className="text-[16px] text-dim">
+						A burn raises the share price for holders in the vault right now. It
+						cannot reach anyone who already redeemed, and it cannot be undone.
+					</p>
+					{burnArmed ? (
+						<div className="flex gap-2">
+							<Button
+								variant="danger"
+								onClick={() => {
+									burnSeed(agent.id, burnBps);
+									setBurnArmed(false);
+								}}
+							>
+								Confirm burn {burnBps / 100}%
+							</Button>
+							<Button variant="ghost" onClick={() => setBurnArmed(false)}>
+								Cancel
+							</Button>
+						</div>
+					) : (
+						<Button
+							variant="danger"
+							disabled={agent.vault.seedAssets <= 0}
+							onClick={() => setBurnArmed(true)}
+						>
+							Burn {burnBps / 100}% of seed
+						</Button>
+					)}
+					<Button
+						variant="ghost"
+						disabled={!canRelease}
+						onClick={() => releaseSeed(agent.id)}
+					>
+						Release seed
+					</Button>
+					{releaseBlock ? (
+						<p className="text-[16px] text-dim">{releaseBlock}</p>
+					) : null}
 				</div>
 
 				<div className="space-y-2 border-t border-edge pt-2">

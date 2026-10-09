@@ -15,6 +15,12 @@ const REASONS: Record<string, string> = {
 	AgentAlreadyRevoked: "This agent is revoked and can't be changed.",
 	WalletAlreadyBound: "That agent wallet is already bound to another agent.",
 	SelfDelegation: "The agent wallet must differ from your own wallet.",
+	SeedLocked: "Locked seed shares can't be moved or redeemed.",
+	AgentNotRevoked: "Revoke the agent before releasing its seed.",
+	BaseStillHeld:
+		"The vault still holds a market's token. Wait for the agent to sell it.",
+	ZeroAmount: "The amount is zero.",
+	SeedExceeded: "That is more than the seed you still have locked.",
 	SeedTooSmall: "The seed deposit is below the minimum.",
 	YieldSourceNotAllowed: "That yield source isn't approved by the protocol.",
 	FeeRateOutOfRange: "The performance fee is outside the allowed range.",

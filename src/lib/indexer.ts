@@ -370,6 +370,39 @@ export async function fetchIndexedAttestations(
 	);
 }
 
+const SEED_BURN_QUERY = `
+query SeedBurns($chainId: Int!, $creator: String!) {
+  AgentVault_SeedBurned(where: { chainId: { _eq: $chainId }, creator: { _ilike: $creator } }, order_by: { timestamp: desc }, limit: 200) {
+    vault shares timestamp
+  }
+}`;
+
+export type SeedBurn = { vault: string; shares: number; timestamp: number };
+
+/** A creator's seed burns, newest first. Null without an indexer. */
+export async function fetchSeedBurns(
+	chainId: number,
+	creator: string,
+): Promise<SeedBurn[] | null> {
+	if (!GRAPHQL_URL) return null;
+	const res = await fetch(GRAPHQL_URL, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			query: SEED_BURN_QUERY,
+			variables: { chainId, creator: creator.toLowerCase() },
+		}),
+	});
+	if (!res.ok) throw new Error(`indexer ${res.status}`);
+	const { data, errors } = await res.json();
+	if (errors?.length) throw new Error(errors[0].message);
+	return (data.AgentVault_SeedBurned as Record<string, unknown>[]).map((r) => ({
+		vault: String(r.vault),
+		shares: fromTokenUnits(big(r.shares)),
+		timestamp: Number(r.timestamp),
+	}));
+}
+
 export type VaultAgent = { id: string; name: string; agentAddress: string };
 
 const usdc = (v: unknown) => `${formatAmount(fromTokenUnits(big(v)))} USDC`;

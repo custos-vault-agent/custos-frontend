@@ -19,7 +19,7 @@ import {
 	formatPrice,
 	shortAddress,
 } from "#/lib/format";
-import { fetchIndexedAttestations } from "#/lib/indexer";
+import { fetchIndexedAttestations, fetchSeedBurns } from "#/lib/indexer";
 import { useStore } from "#/lib/store";
 
 export const Route = createFileRoute("/creators/$address")({
@@ -32,6 +32,12 @@ function CreatorPage() {
 	const { data: attestations } = useQuery({
 		queryKey: ["attestations", monadChain.id, address.toLowerCase()],
 		queryFn: () => fetchIndexedAttestations(monadChain.id, address),
+		retry: false,
+	});
+
+	const { data: burns } = useQuery({
+		queryKey: ["seedBurns", monadChain.id, address.toLowerCase()],
+		queryFn: () => fetchSeedBurns(monadChain.id, address),
 		retry: false,
 	});
 
@@ -75,6 +81,10 @@ function CreatorPage() {
 	const subs = mine.reduce((s, a) => s + a.stats.subscribers, 0);
 	const since = Math.min(...mine.map((a) => a.registeredAt));
 	const days = Math.floor((Date.now() - since) / 86_400_000);
+	const nameOf = (vault: string) =>
+		mine.find((a) => a.vault.address.toLowerCase() === vault.toLowerCase())
+			?.name ?? shortAddress(vault);
+	const burnedTotal = (burns ?? []).reduce((s, b) => s + b.shares, 0);
 	const stat = (value: string, label: string, tone?: string) => (
 		<div>
 			<div className={cx("tnum text-[20px]", tone)}>{value}</div>
@@ -184,6 +194,42 @@ function CreatorPage() {
 								<span className="w-[56px] text-right">
 									{formatPercent(t.winRate, 0)}
 								</span>
+							</div>
+						))}
+					</div>
+				)}
+			</Card>
+
+			<Card>
+				<CardHeader
+					title="Seed burns"
+					meta={
+						burns?.length ? `${formatAmount(burnedTotal)} shares` : undefined
+					}
+				/>
+				{!burns || burns.length === 0 ? (
+					<Empty
+						title={burns ? "No burns" : "History unavailable"}
+						hint={
+							burns
+								? "This creator has not burned any of its locked seed."
+								: "Burn history needs the indexer."
+						}
+					/>
+				) : (
+					<div className="divide-y divide-edge">
+						{burns.map((b) => (
+							<div
+								key={`${b.vault}-${b.timestamp}-${b.shares}`}
+								className="tnum flex items-center gap-3 p-3 text-[17px]"
+							>
+								<span className="w-[64px] shrink-0 text-dim">
+									{formatDay(b.timestamp * 1000)}
+								</span>
+								<span className="min-w-0 flex-1 truncate">
+									{nameOf(b.vault)}
+								</span>
+								<span>{formatAmount(b.shares)} shares</span>
 							</div>
 						))}
 					</div>
