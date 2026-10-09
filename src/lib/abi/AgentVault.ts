@@ -2,6 +2,13 @@
 export const AgentVaultAbi = [
 	{
 		type: "function",
+		name: "seedShares",
+		inputs: [],
+		outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
+		stateMutability: "view",
+	},
+	{
+		type: "function",
 		name: "allowedMarkets",
 		inputs: [{ name: "market", type: "address", internalType: "address" }],
 		outputs: [{ name: "allowed", type: "bool", internalType: "bool" }],

@@ -24,8 +24,6 @@ import type {
 	YieldSourceOption,
 } from "./types";
 
-const DEAD_ADDRESS = "0x0000000000000000000000000000000000000001" as const;
-
 /** The registry stores a name as bytes32, right-padded with zero bytes. Both the
  *  chain and the indexer serve that raw value, so decode it here, once. */
 function decodeName(name: `0x${string}`): string {
@@ -360,12 +358,8 @@ export async function fetchAgents(
 					functionName: "maxUtilizationBps",
 				},
 				{ address: r.vault, abi: AgentVaultAbi, functionName: "yieldSource" },
-				{
-					address: r.vault,
-					abi: AgentVaultAbi,
-					functionName: "balanceOf",
-					args: [DEAD_ADDRESS],
-				},
+				// The creator's locked seed. Only dust sits at the dead address now.
+				{ address: r.vault, abi: AgentVaultAbi, functionName: "seedShares" },
 				{
 					address: r.vault,
 					abi: AgentVaultAbi,
