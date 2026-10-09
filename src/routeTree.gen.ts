@@ -14,6 +14,7 @@ import { Route as ActivityRouteImport } from './routes/activity'
 import { Route as LeaderboardRouteImport } from './routes/leaderboard'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as AgentsAgentIdRouteImport } from './routes/agents.$agentId'
+import { Route as CreatorsAddressRouteImport } from './routes/creators.$address'
 import { Route as ApiAuroraSplatRouteImport } from './routes/api/aurora.$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -41,6 +42,11 @@ const AgentsAgentIdRoute = AgentsAgentIdRouteImport.update({
   path: '/agents/$agentId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CreatorsAddressRoute = CreatorsAddressRouteImport.update({
+  id: '/creators/$address',
+  path: '/creators/$address',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuroraSplatRoute = ApiAuroraSplatRouteImport.update({
   id: '/api/aurora/$',
   path: '/api/aurora/$',
@@ -53,6 +59,7 @@ export interface FileRoutesByFullPath {
   '/leaderboard': typeof LeaderboardRoute
   '/profile': typeof ProfileRoute
   '/agents/$agentId': typeof AgentsAgentIdRoute
+  '/creators/$address': typeof CreatorsAddressRoute
   '/api/aurora/$': typeof ApiAuroraSplatRoute
 }
 export interface FileRoutesByTo {
@@ -61,6 +68,7 @@ export interface FileRoutesByTo {
   '/leaderboard': typeof LeaderboardRoute
   '/profile': typeof ProfileRoute
   '/agents/$agentId': typeof AgentsAgentIdRoute
+  '/creators/$address': typeof CreatorsAddressRoute
   '/api/aurora/$': typeof ApiAuroraSplatRoute
 }
 export interface FileRoutesById {
@@ -70,6 +78,7 @@ export interface FileRoutesById {
   '/leaderboard': typeof LeaderboardRoute
   '/profile': typeof ProfileRoute
   '/agents/$agentId': typeof AgentsAgentIdRoute
+  '/creators/$address': typeof CreatorsAddressRoute
   '/api/aurora/$': typeof ApiAuroraSplatRoute
 }
 export interface FileRouteTypes {
@@ -80,6 +89,7 @@ export interface FileRouteTypes {
     | '/leaderboard'
     | '/profile'
     | '/agents/$agentId'
+    | '/creators/$address'
     | '/api/aurora/$'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -88,6 +98,7 @@ export interface FileRouteTypes {
     | '/leaderboard'
     | '/profile'
     | '/agents/$agentId'
+    | '/creators/$address'
     | '/api/aurora/$'
   id:
     | '__root__'
@@ -96,6 +107,7 @@ export interface FileRouteTypes {
     | '/leaderboard'
     | '/profile'
     | '/agents/$agentId'
+    | '/creators/$address'
     | '/api/aurora/$'
   fileRoutesById: FileRoutesById
 }
@@ -105,6 +117,7 @@ export interface RootRouteChildren {
   LeaderboardRoute: typeof LeaderboardRoute
   ProfileRoute: typeof ProfileRoute
   AgentsAgentIdRoute: typeof AgentsAgentIdRoute
+  CreatorsAddressRoute: typeof CreatorsAddressRoute
   ApiAuroraSplatRoute: typeof ApiAuroraSplatRoute
 }
 
@@ -145,6 +158,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AgentsAgentIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/creators/$address': {
+      id: '/creators/$address'
+      path: '/creators/$address'
+      fullPath: '/creators/$address'
+      preLoaderRoute: typeof CreatorsAddressRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/aurora/$': {
       id: '/api/aurora/$'
       path: '/api/aurora/$'
@@ -161,6 +181,7 @@ const rootRouteChildren: RootRouteChildren = {
   LeaderboardRoute: LeaderboardRoute,
   ProfileRoute: ProfileRoute,
   AgentsAgentIdRoute: AgentsAgentIdRoute,
+  CreatorsAddressRoute: CreatorsAddressRoute,
   ApiAuroraSplatRoute: ApiAuroraSplatRoute,
 }
 export const routeTree = rootRouteImport

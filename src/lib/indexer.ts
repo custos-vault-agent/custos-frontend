@@ -37,6 +37,11 @@ export type IndexedAgent = {
 	markets: string[];
 	assetsInTotal: bigint;
 	assetsOutTotal: bigint;
+	buyCount: number;
+	maxNotional: bigint;
+	tradeHours: number[];
+	holdSecondsTotal: bigint;
+	breakerCount: number;
 };
 
 export type IndexedPricePoint = {
@@ -72,6 +77,7 @@ query Agents($chainId: Int!, $since: Int!, $flowSince: Int!${withHolder ? ", $ho
     nansenLabel nansenPnl nansenWinRate nansenAttestedAt
     subscriberCount yieldDeployed realizedPnl closedCount winCount
     markets assetsInTotal assetsOutTotal
+    buyCount maxNotional tradeHours holdSecondsTotal breakerCount
   }
   SharePricePoint(where: { chainId: { _eq: $chainId } }, order_by: { timestamp: asc }) {
     agent timestamp sharePrice totalAssets notional source
@@ -200,6 +206,13 @@ export async function fetchIndexedAgents(
 			markets: ((a.markets ?? []) as string[]).map((m) => m.toLowerCase()),
 			assetsInTotal: big(a.assetsInTotal ?? 0),
 			assetsOutTotal: big(a.assetsOutTotal ?? 0),
+			buyCount: Number(a.buyCount ?? 0),
+			maxNotional: big(a.maxNotional ?? 0),
+			tradeHours: Array.from({ length: 24 }, (_, h) =>
+				Number((a.tradeHours as number[] | null)?.[h] ?? 0),
+			),
+			holdSecondsTotal: big(a.holdSecondsTotal ?? 0),
+			breakerCount: Number(a.breakerCount ?? 0),
 		}),
 	);
 
@@ -304,6 +317,49 @@ export async function fetchIndexedActivity(
 	const { data, errors } = await res.json();
 	if (errors?.length) throw new Error(errors[0].message);
 	return data;
+}
+
+export type IndexedAttestation = {
+	label: string;
+	pnl: number;
+	winRate: number;
+	timestamp: number;
+};
+
+// `_ilike` not `_eq`: the indexer stores the wallet as the event emitted it,
+// which may be checksummed.
+const ATTESTATION_QUERY = `
+query Attestations($chainId: Int!, $wallet: String!) {
+  NanSigil_AttestationSubmitted(where: { chainId: { _eq: $chainId }, wallet: { _ilike: $wallet } }, order_by: { timestamp: asc }, limit: 200) {
+    label pnl winRate timestamp
+  }
+}`;
+
+/** A wallet's full attestation history, oldest first. Null without an indexer. */
+export async function fetchIndexedAttestations(
+	chainId: number,
+	wallet: string,
+): Promise<IndexedAttestation[] | null> {
+	if (!GRAPHQL_URL) return null;
+	const res = await fetch(GRAPHQL_URL, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			query: ATTESTATION_QUERY,
+			variables: { chainId, wallet: wallet.toLowerCase() },
+		}),
+	});
+	if (!res.ok) throw new Error(`indexer ${res.status}`);
+	const { data, errors } = await res.json();
+	if (errors?.length) throw new Error(errors[0].message);
+	return (data.NanSigil_AttestationSubmitted as Record<string, unknown>[]).map(
+		(r) => ({
+			label: String(r.label),
+			pnl: fromTokenUnits(big(r.pnl)),
+			winRate: Number(r.winRate),
+			timestamp: Number(r.timestamp),
+		}),
+	);
 }
 
 export type VaultAgent = { id: string; name: string; agentAddress: string };

@@ -35,6 +35,20 @@ export type AgentStats = {
 	indexed: boolean;
 };
 
+/** Proven trading habits from indexed swaps. Null on the agent without an indexer. */
+export type Behaviour = {
+	swapCount: number;
+	buyCount: number;
+	/** USDC per swap on average; null before the first swap. */
+	avgSize: number | null;
+	maxNotional: number;
+	/** Swap counts by UTC hour, 24 entries. */
+	tradeHours: number[];
+	/** Seconds per closed roundtrip; null until one has closed. */
+	avgHoldSeconds: number | null;
+	breakerCount: number;
+};
+
 /**
  * One ERC-4626 vault per agent (spec v1 D13). `sharePrice` is the single
  * source of truth for performance; everything else is a trust signal shown
@@ -121,6 +135,7 @@ export type Agent = {
 	markets: string[];
 	nansen: NansenBadge | null;
 	stats: AgentStats;
+	behaviour: Behaviour | null;
 };
 
 export type Actor =

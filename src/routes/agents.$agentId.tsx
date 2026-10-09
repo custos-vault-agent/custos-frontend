@@ -26,10 +26,12 @@ import {
 	formatClock,
 	formatCompactUsd,
 	formatDay,
+	formatDuration,
 	formatPercent,
 	livenessPill,
 	moneyWeightedReturn,
 	shortAddress,
+	tradingStyle,
 } from "#/lib/format";
 import { useStore } from "#/lib/store";
 
@@ -37,13 +39,32 @@ export const Route = createFileRoute("/agents/$agentId")({
 	component: VaultDetailPage,
 });
 
-function AddressRow({ label, address }: { label: string; address: string }) {
+function AddressRow({
+	label,
+	address,
+	creator = false,
+}: {
+	label: string;
+	address: string;
+	creator?: boolean;
+}) {
 	return (
 		<div className="flex items-center gap-2">
 			<Label className="w-[112px] shrink-0">{label}</Label>
-			<span className="truncate text-[17px]" title={address}>
-				{shortAddress(address, 10, 6)}
-			</span>
+			{creator ? (
+				<Link
+					to="/creators/$address"
+					params={{ address }}
+					className="truncate text-[17px] underline hover:text-accent"
+					title={address}
+				>
+					{shortAddress(address, 10, 6)}
+				</Link>
+			) : (
+				<span className="truncate text-[17px]" title={address}>
+					{shortAddress(address, 10, 6)}
+				</span>
+			)}
 		</div>
 	);
 }
@@ -96,6 +117,13 @@ function VaultDetailPage() {
 		hwm > 0 ? Math.max(0, (1 - agent.vault.sharePrice / hwm) * 100) : 0;
 	const signals = marketFlow.filter((f) => agent.markets.includes(f.market));
 	const liveness = livenessPill(agent);
+	const b = agent.behaviour;
+	const style = tradingStyle(agent);
+	const weeks = Math.max(
+		(Date.now() - agent.registeredAt) / (7 * 86_400_000),
+		1 / 7,
+	);
+	const maxHour = b ? Math.max(...b.tradeHours, 1) : 1;
 	const dollarReturn = agent.stats.dollarReturn;
 	const shareReturn = (agent.vault.sharePrice - 1) * 100;
 	const yourReturn =
@@ -152,7 +180,11 @@ function VaultDetailPage() {
 
 						<div className="space-y-1 border-t border-edge pt-2">
 							<AddressRow label="Agent" address={agent.agentAddress} />
-							<AddressRow label="Creator" address={agent.creatorAddress} />
+							<AddressRow
+								label="Creator"
+								address={agent.creatorAddress}
+								creator
+							/>
 							<div className="flex items-center gap-2">
 								<Label className="w-[112px] shrink-0">Registered</Label>
 								<span className="text-[17px]">
@@ -318,6 +350,96 @@ function VaultDetailPage() {
 							</div>
 						</div>
 					</div>
+				</Card>
+
+				<Card>
+					<CardHeader title="Behaviour" meta={style ?? undefined} />
+					{!b || b.swapCount === 0 ? (
+						<Empty
+							title={b ? "Never traded" : "No behaviour data"}
+							hint={
+								b
+									? "Habits appear after the first swap."
+									: "Behaviour needs the indexer, which is unreachable."
+							}
+						/>
+					) : (
+						<div className="space-y-3 p-3">
+							<div>
+								<svg
+									viewBox="0 0 240 64"
+									className="block h-auto w-full"
+									role="img"
+								>
+									<title>Swaps by UTC hour</title>
+									{b.tradeHours.map((n, h) => (
+										<rect
+											// biome-ignore lint/suspicious/noArrayIndexKey: fixed 24 buckets
+											key={h}
+											x={h * 10 + 1}
+											y={58 - (n / maxHour) * 56}
+											width={8}
+											height={(n / maxHour) * 56}
+											fill="var(--cx-accent)"
+										>
+											<title>{`${String(h).padStart(2, "0")}:00 UTC · ${n}`}</title>
+										</rect>
+									))}
+									<line
+										x1={0}
+										x2={240}
+										y1={58.5}
+										y2={58.5}
+										stroke="var(--cx-edge)"
+									/>
+								</svg>
+								<Label className="text-[14px] tracking-[1px]">
+									swaps by hour, UTC · 00 to 23
+								</Label>
+							</div>
+							<div className="grid grid-cols-2 gap-3 border-t border-edge pt-2 sm:grid-cols-4">
+								<div>
+									<div className="tnum text-[20px]">
+										{b.avgHoldSeconds === null
+											? "—"
+											: formatDuration(b.avgHoldSeconds)}
+									</div>
+									<Label className="text-[14px] tracking-[1px]">avg hold</Label>
+								</div>
+								<div>
+									<div className="tnum text-[20px]">
+										{(b.swapCount / weeks).toFixed(1)}
+									</div>
+									<Label className="text-[14px] tracking-[1px]">
+										swaps / week
+									</Label>
+								</div>
+								<div>
+									<div className="tnum text-[20px]">
+										{b.avgSize === null
+											? "—"
+											: agent.allowance > 0
+												? `${((b.avgSize / agent.allowance) * 100).toFixed(0)}%`
+												: formatCompactUsd(b.avgSize)}
+									</div>
+									<Label className="text-[14px] tracking-[1px]">
+										typical size / budget
+									</Label>
+								</div>
+								<div>
+									<div className="tnum text-[20px]">
+										{formatCompactUsd(b.maxNotional)}
+									</div>
+									<Label className="text-[14px] tracking-[1px]">
+										largest swap
+									</Label>
+								</div>
+							</div>
+							<div className="tnum border-t border-edge pt-2 text-[17px] text-dim">
+								{b.buyCount} buys · {b.swapCount - b.buyCount} sells
+							</div>
+						</div>
+					)}
 				</Card>
 
 				<Card>

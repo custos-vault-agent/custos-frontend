@@ -433,6 +433,23 @@ export async function fetchAgents(
 					swapTimes.length > 0 ? Math.max(...swapTimes) * 1000 : null,
 				indexed: !!indexed,
 			},
+			behaviour: row
+				? {
+						swapCount: row.swapCount,
+						buyCount: row.buyCount,
+						avgSize:
+							row.swapCount > 0
+								? fromTokenUnits(row.volume) / row.swapCount
+								: null,
+						maxNotional: fromTokenUnits(row.maxNotional),
+						tradeHours: row.tradeHours,
+						avgHoldSeconds:
+							row.closedCount > 0
+								? Number(row.holdSecondsTotal) / row.closedCount
+								: null,
+						breakerCount: row.breakerCount,
+					}
+				: null,
 		};
 		return agent;
 	});

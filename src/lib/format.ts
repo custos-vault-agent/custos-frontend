@@ -98,3 +98,37 @@ export function livenessPill(agent: Agent): {
 		? { label: `idle ${IDLE_DAYS}d`, tone: "progress" }
 		: null;
 }
+
+/** "3d 4h", "5h 20m", "12m", "40s". */
+export function formatDuration(seconds: number): string {
+	const d = Math.floor(seconds / 86_400);
+	const h = Math.floor((seconds % 86_400) / 3_600);
+	const m = Math.floor((seconds % 3_600) / 60);
+	if (d > 0) return `${d}d ${h}h`;
+	if (h > 0) return `${h}h ${m}m`;
+	if (m > 0) return `${m}m`;
+	return `${Math.floor(seconds)}s`;
+}
+
+// Heuristics, not facts: upper bound of the average hold for each style.
+export const STYLE_MAX_HOLD_SECONDS = {
+	scalper: 3_600,
+	intraday: 86_400,
+	swing: 7 * 86_400,
+} as const;
+
+/** Null when the agent has no trades or the indexer is absent. */
+export function tradingStyle(agent: Agent): string | null {
+	const b = agent.behaviour;
+	if (!b) return null;
+	if (b.swapCount === 0) return "dormant";
+	if (b.avgHoldSeconds === null) return null;
+	const t = STYLE_MAX_HOLD_SECONDS;
+	return b.avgHoldSeconds <= t.scalper
+		? "scalper"
+		: b.avgHoldSeconds <= t.intraday
+			? "intraday"
+			: b.avgHoldSeconds <= t.swing
+				? "swing"
+				: "position";
+}
