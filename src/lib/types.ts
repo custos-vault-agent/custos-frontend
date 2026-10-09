@@ -114,11 +114,14 @@ export type Position = {
 	assetsOut?: number;
 };
 
-/** One curated market as it stands for one agent. Creator-only state. */
-export type MarketAccess = {
-	market: string;
-	baseToken: string;
+export type CuratedMarket = {
+	market: `0x${string}`;
+	baseToken: `0x${string}`;
 	baseSymbol: string;
+};
+
+/** One curated market as it stands for one agent. Creator-only state. */
+export type MarketAccess = CuratedMarket & {
 	allowed: boolean;
 	/** The vault holds base token; disabling would revert with MarketStillHeld. */
 	heldByVault: boolean;
@@ -214,6 +217,8 @@ export type RegisterInput = {
 	maxUtilizationBps: number;
 	/** Allowlisted yield source, or the zero address to keep USDC idle. */
 	yieldSource: string;
+	/** Curated markets to enable once registered. */
+	markets: string[];
 	isPublic: boolean;
 };
 

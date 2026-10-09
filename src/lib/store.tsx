@@ -38,6 +38,7 @@ import type {
 	ActivityEntry,
 	ActivityKind,
 	Agent,
+	CuratedMarket,
 	MarketFlow,
 	Position,
 	RedeemInput,
@@ -63,6 +64,7 @@ type StoreValue = {
 	agents: Agent[];
 	agentsLoading: boolean;
 	yieldSources: YieldSourceOption[];
+	curatedMarkets: CuratedMarket[];
 	myAgents: Agent[];
 	positions: Position[];
 	marketFlow: MarketFlow[];
@@ -101,6 +103,7 @@ const EMPTY_AGENTS: Agent[] = [];
 const EMPTY_POSITIONS: Position[] = [];
 const EMPTY_FLOW: MarketFlow[] = [];
 const EMPTY_YIELD: YieldSourceOption[] = [];
+const EMPTY_MARKETS: CuratedMarket[] = [];
 
 const StoreContext = createContext<StoreValue | null>(null);
 
@@ -128,6 +131,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 	const markets = data?.markets;
 	const marketFlow = data?.marketFlow ?? EMPTY_FLOW;
 	const yieldSources = data?.yieldSources ?? EMPTY_YIELD;
+	const curatedMarkets = data?.curatedMarkets ?? EMPTY_MARKETS;
 	const connectedAddress = address ?? null;
 
 	const myAgents = useMemo(
@@ -520,6 +524,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 					input.maxUtilizationBps,
 					input.isPublic,
 					seed,
+					// Allowed on the new vault in the same transaction, so the agent can
+					// trade the moment it exists.
+					input.markets as `0x${string}`[],
 				],
 			});
 			flight.setStep(1, "active", "confirming");
@@ -672,8 +679,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 	) {
 		if (!address) throw new Error("connect a wallet first");
 		if (!publicClient) throw new Error("no public client");
-		const agent = agents.find((a) => a.id === id);
-		if (!agent) throw new Error("unknown agent");
+		const agentName = agents.find((a) => a.id === id)?.name;
+		if (!agentName) throw new Error("unknown agent");
 		if (calls.length === 0) return;
 
 		const flight = startFlight(
@@ -681,7 +688,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 				kind: "vault-config",
 				key: id,
 				agentId: id,
-				title: `${title} · ${agent.name}`,
+				title: `${title} · ${agentName}`,
 				amount: "",
 			},
 			calls.map((c, i) => ({
@@ -743,6 +750,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 		agents,
 		agentsLoading,
 		yieldSources,
+		curatedMarkets,
 		myAgents,
 		positions,
 		marketFlow,

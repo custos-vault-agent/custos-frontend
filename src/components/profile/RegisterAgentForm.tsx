@@ -25,7 +25,8 @@ const PERIODS: ResetPeriod[] = ["daily", "weekly", "monthly", "never"];
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
 export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
-	const { registerAgent, connectedAddress, yieldSources } = useStore();
+	const { registerAgent, connectedAddress, yieldSources, curatedMarkets } =
+		useStore();
 
 	const [name, setName] = useState("");
 	const [description, setDescription] = useState("");
@@ -38,6 +39,7 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 	const [maxUtilizationPercent, setMaxUtilizationPercent] = useState("70");
 	// Index into the offered sources; -1 = keep USDC idle.
 	const [yieldIndex, setYieldIndex] = useState(0);
+	const [pickedMarkets, setPickedMarkets] = useState<string[]>([]);
 	const [isPublic, setIsPublic] = useState(true);
 	const [touched, setTouched] = useState(false);
 
@@ -81,6 +83,7 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 		name.trim().length > 0 &&
 		!nameTooLong &&
 		addressValid &&
+		(curatedMarkets.length === 0 || pickedMarkets.length > 0) &&
 		allowanceNumber > 0 &&
 		!seedTooSmall &&
 		!feeOutOfRange &&
@@ -291,10 +294,41 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 					vault, up to its allowance. It cannot withdraw or transfer funds.
 				</p>
 
-				<p className="border-l-2 border-edge pl-2 text-[16px] text-dim">
-					A new vault trades nothing yet. Pick its markets in Edit agent once
-					this is registered.
-				</p>
+				<div className="space-y-2 border-t border-edge pt-2">
+					<Label>Markets</Label>
+					{curatedMarkets.length === 0 ? (
+						<p className="border-l-2 border-edge pl-2 text-[16px] text-dim">
+							The protocol has not curated any market yet. Enable them in Edit
+							agent once they exist.
+						</p>
+					) : (
+						<>
+							{curatedMarkets.map((m) => (
+								<label
+									key={m.market}
+									className="flex items-center gap-2 text-[17px]"
+								>
+									<input
+										type="checkbox"
+										checked={pickedMarkets.includes(m.market)}
+										onChange={(e) =>
+											setPickedMarkets((list) =>
+												e.target.checked
+													? [...list, m.market]
+													: list.filter((x) => x !== m.market),
+											)
+										}
+									/>
+									{m.baseSymbol}
+								</label>
+							))}
+							<p className="border-l-2 border-edge pl-2 text-[16px] text-dim">
+								Pick at least one. Each is enabled with its own transaction
+								after registration.
+							</p>
+						</>
+					)}
+				</div>
 
 				<Button
 					variant="solid"
@@ -313,6 +347,7 @@ export function RegisterAgentForm({ onClose }: { onClose: () => void }) {
 							maxDrawdownBps,
 							maxUtilizationBps,
 							yieldSource: pickedYield?.address ?? zeroAddress,
+							markets: pickedMarkets,
 							isPublic,
 						});
 						onClose();

@@ -191,6 +191,7 @@ export const CustosCoreAbi = [
 			{ name: "maxUtilizationBps", type: "uint16", internalType: "uint16" },
 			{ name: "isPublic", type: "bool", internalType: "bool" },
 			{ name: "seedAmount", type: "uint128", internalType: "uint128" },
+			{ name: "markets", type: "address[]", internalType: "address[]" },
 		],
 		outputs: [
 			{ name: "id", type: "bytes32", internalType: "bytes32" },

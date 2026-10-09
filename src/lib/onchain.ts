@@ -16,6 +16,7 @@ import { fetchIndexedAgents, type MarketMeta } from "./indexer";
 import type {
 	Agent,
 	AgentStatus,
+	CuratedMarket,
 	MarketAccess,
 	MarketFlow,
 	NansenBadge,
@@ -155,25 +156,18 @@ async function listFromChain(publicClient: PublicClient) {
 	return { ids: [...ids], records: [...records] };
 }
 
-/** Curated markets per agent the account created: the vault's own toggle and
- *  whether it still holds the base token. Keyed by lowercased vault address. */
-async function readMarketAccess(
+/** Every curated market with its base token, for the register form and the
+ *  per-agent access reads. */
+async function readCuratedMarkets(
 	publicClient: PublicClient,
-	records: RegistryRecord[],
-	account: `0x${string}` | undefined,
 	meta: Map<string, MarketMeta>,
-) {
-	const out = new Map<string, MarketAccess[]>();
-	const mine = records.filter(
-		(r) => account && r.creator.toLowerCase() === account.toLowerCase(),
-	);
-	if (mine.length === 0) return out;
+): Promise<CuratedMarket[]> {
 	const curated = await publicClient.readContract({
 		address: CONTRACTS.custosCore,
 		abi: CustosCoreAbi,
 		functionName: "curatedMarkets",
 	});
-	if (curated.length === 0) return out;
+	if (curated.length === 0) return [];
 	const bases = (await publicClient.multicall({
 		contracts: curated.map((market) => ({
 			address: market,
@@ -182,19 +176,39 @@ async function readMarketAccess(
 		})),
 		allowFailure: false,
 	})) as readonly `0x${string}`[];
+	return curated.map((market, j) => ({
+		market,
+		baseToken: bases[j],
+		baseSymbol: meta.get(market.toLowerCase())?.symbol ?? shortAddress(market),
+	}));
+}
+
+/** Curated markets per agent the account created: the vault's own toggle and
+ *  whether it still holds the base token. Keyed by lowercased vault address. */
+async function readMarketAccess(
+	publicClient: PublicClient,
+	records: RegistryRecord[],
+	account: `0x${string}` | undefined,
+	curated: CuratedMarket[],
+) {
+	const out = new Map<string, MarketAccess[]>();
+	const mine = records.filter(
+		(r) => account && r.creator.toLowerCase() === account.toLowerCase(),
+	);
+	if (mine.length === 0 || curated.length === 0) return out;
 	const pairs = mine.flatMap((m) => curated.map((_, j) => ({ m, j })));
 	const allowedFlags = await publicClient.multicall({
 		contracts: pairs.map(({ m, j }) => ({
 			address: m.vault,
 			abi: ALLOWED_MARKETS_ABI,
 			functionName: "allowedMarkets" as const,
-			args: [curated[j]] as const,
+			args: [curated[j].market] as const,
 		})),
 		allowFailure: false,
 	});
 	const held = (await publicClient.multicall({
 		contracts: pairs.map(({ m, j }) => ({
-			address: bases[j],
+			address: curated[j].baseToken,
 			abi: MockERC20Abi,
 			functionName: "balanceOf",
 			args: [m.vault],
@@ -205,10 +219,7 @@ async function readMarketAccess(
 		const key = m.vault.toLowerCase();
 		const list = out.get(key) ?? [];
 		list.push({
-			market: curated[j],
-			baseToken: bases[j],
-			baseSymbol:
-				meta.get(curated[j].toLowerCase())?.symbol ?? shortAddress(curated[j]),
+			...curated[j],
 			allowed: allowedFlags[k],
 			heldByVault: held[k] > 0n,
 		});
@@ -234,6 +245,7 @@ export async function fetchAgents(
 	markets: Map<string, MarketMeta>;
 	marketFlow: MarketFlow[];
 	yieldSources: YieldSourceOption[];
+	curatedMarkets: CuratedMarket[];
 }> {
 	// The RPC decides which chain this really is. A VITE_RPC_URL that points at a
 	// different network than VITE_CHAIN_ID makes the wallet ask for the wrong chain
@@ -269,6 +281,7 @@ export async function fetchAgents(
 		: await listFromChain(publicClient);
 	const markets = indexed?.markets ?? new Map<string, MarketMeta>();
 	const marketFlow = indexed?.marketFlow ?? [];
+	const curatedMarkets = await readCuratedMarkets(publicClient, markets);
 
 	// A mapping cannot be enumerated, so without a reachable indexer there is no
 	// yield option. The log replay can lag, so confirm each source on-chain.
@@ -316,6 +329,7 @@ export async function fetchAgents(
 			markets,
 			marketFlow,
 			yieldSources: toOptions(await readApy(allowedSources)),
+			curatedMarkets,
 		};
 	const descriptionById = new Map(
 		indexed?.agents.map((a) => [a.id.toLowerCase(), a.description]) ?? [],
@@ -393,7 +407,7 @@ export async function fetchAgents(
 		publicClient,
 		records,
 		account,
-		markets,
+		curatedMarkets,
 	);
 
 	// yieldApyBps needs a second-hop read against each distinct yieldSource —
@@ -599,5 +613,6 @@ export async function fetchAgents(
 		markets,
 		marketFlow,
 		yieldSources: toOptions(apyByYieldSource),
+		curatedMarkets,
 	};
 }
